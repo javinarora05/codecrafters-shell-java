@@ -1,7 +1,5 @@
 import java.io.File;
 import java.io.InputStream;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Scanner;
 
 public class Main {
@@ -47,28 +45,18 @@ public class Main {
                 String pathToExecutable = getPathToExecutable(command);
                 
                 if (pathToExecutable != null) {
-                    List<String> commandWithArgs = new ArrayList<>();
-                    
-                    // Pass the short name so argv[0] matches exactly what the tester expects
-                    commandWithArgs.add("./" + command); 
-                    
+                    // Create the full arguments array where argument 0 is the clean command name
+                    String[] cmdArray = new String[inputParts.length];
+                    cmdArray[0] = command; // e.g., "custom_exe_5395"
                     for (int i = 1; i < inputParts.length; i++) {
-                        commandWithArgs.add(inputParts[i]);
+                        cmdArray[i] = inputParts[i];
                     }
 
                     try {
-                        ProcessBuilder processBuilder = new ProcessBuilder(commandWithArgs);
-                        
-                        // Extract the parent directory of the executable
-                        File executableFile = new File(pathToExecutable);
-                        File parentDirectory = executableFile.getParentFile();
-                        
-                        // Set the execution directory to the folder containing the binary
-                        processBuilder.directory(parentDirectory);
-                        
-                        processBuilder.redirectErrorStream(true);
-                        Process process = processBuilder.start();
+                        // Use Runtime.exec with the absolute path, but passing our custom clean cmdArray
+                        Process process = Runtime.getRuntime().exec(cmdArray, null, null);
 
+                        // Safely pipe the process output stream back to stdout
                         InputStream inputStream = process.getInputStream();
                         byte[] buffer = new byte[1024];
                         int bytesRead;
