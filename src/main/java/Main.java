@@ -1,3 +1,4 @@
+import java.io.File;
 import java.util.Scanner;
 public class Main {
     public static void main(String[] args) throws Exception {
@@ -26,4 +27,24 @@ public class Main {
             }
         }
     }
+    private static String getPathToExecutable(String command) {
+        String pathEnv = System.getenv("PATH");
+        if (pathEnv == null || pathEnv.isEmpty()) {
+            return null;
+        }
+
+        // Split PATH using the OS-agnostic separator (':' on Linux/macOS, ';' on Windows)
+        String[] directories = pathEnv.split(File.pathSeparator);
+
+        for (String directory : directories) {
+            File file = new File(directory, command);
+            // Check if the file exists and is executable
+            if (file.exists() && file.canExecute()) {
+                return file.getAbsolutePath();
+            }
+        }
+
+        return null;
+    }
+
 }
