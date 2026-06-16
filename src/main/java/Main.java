@@ -16,14 +16,12 @@ public class Main {
                 continue;
             }
 
-            // Split the input into command and its arguments by space
             String[] inputParts = input.split(" ");
             String command = inputParts[0];
 
             if (command.equals("exit")) {
                 break;
             } else if (command.equals("echo")) {
-                // Reconstruct echo arguments (everything after "echo ")
                 if (input.length() > 5) {
                     System.out.println(input.substring(5));
                 } else {
@@ -46,24 +44,28 @@ public class Main {
                     }
                 }
             } else {
-                // If it's not a builtin, check if it's an external executable file
                 String pathToExecutable = getPathToExecutable(command);
                 
                 if (pathToExecutable != null) {
-                    // Build the command and full argument array list
                     List<String> commandWithArgs = new ArrayList<>();
-                    commandWithArgs.add(pathToExecutable);
+                    
+                    // FIX: Pass the raw command name (e.g., "custom_exe_4225") instead of the absolute path
+                    commandWithArgs.add(command); 
+                    
                     for (int i = 1; i < inputParts.length; i++) {
                         commandWithArgs.add(inputParts[i]);
                     }
 
                     try {
-                        // Start the process
                         ProcessBuilder processBuilder = new ProcessBuilder(commandWithArgs);
-                        processBuilder.redirectErrorStream(true); // Merge stderr into stdout
+                        
+                        // FIX: We must point the ProcessBuilder working environment or executable location 
+                        // to the absolute path directory so the system knows where to find the command.
+                        processBuilder.command().set(0, pathToExecutable);
+                        
+                        processBuilder.redirectErrorStream(true);
                         Process process = processBuilder.start();
 
-                        // Stream the program's output back to our shell's stdout
                         InputStream inputStream = process.getInputStream();
                         byte[] buffer = new byte[1024];
                         int bytesRead;
@@ -71,7 +73,6 @@ public class Main {
                             System.out.write(buffer, 0, bytesRead);
                         }
                         
-                        // Wait for the program to wrap up execution
                         process.waitFor();
                     } catch (Exception e) {
                         System.out.println(command + ": command not found");
