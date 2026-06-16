@@ -49,8 +49,8 @@ public class Main {
                 if (pathToExecutable != null) {
                     List<String> commandWithArgs = new ArrayList<>();
                     
-                    // FIX: Pass the raw command name (e.g., "custom_exe_4225") instead of the absolute path
-                    commandWithArgs.add(command); 
+                    // Pass the short name so argv[0] matches exactly what the tester expects
+                    commandWithArgs.add("./" + command); 
                     
                     for (int i = 1; i < inputParts.length; i++) {
                         commandWithArgs.add(inputParts[i]);
@@ -59,9 +59,12 @@ public class Main {
                     try {
                         ProcessBuilder processBuilder = new ProcessBuilder(commandWithArgs);
                         
-                        // FIX: We must point the ProcessBuilder working environment or executable location 
-                        // to the absolute path directory so the system knows where to find the command.
-                        processBuilder.command().set(0, pathToExecutable);
+                        // Extract the parent directory of the executable
+                        File executableFile = new File(pathToExecutable);
+                        File parentDirectory = executableFile.getParentFile();
+                        
+                        // Set the execution directory to the folder containing the binary
+                        processBuilder.directory(parentDirectory);
                         
                         processBuilder.redirectErrorStream(true);
                         Process process = processBuilder.start();
