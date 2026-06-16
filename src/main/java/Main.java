@@ -17,10 +17,17 @@ public class Main {
             } else if (input.startsWith("type ")) {
                 String command = input.substring(5);
                 
+                // 1. Check if it is a built-in command
                 if (command.equals("echo") || command.equals("exit") || command.equals("type")) {
                     System.out.println(command + " is a shell builtin");
                 } else {
-                    System.out.println(command + ": not found");
+                    // 2. Check if the command exists in the system PATH
+                    String pathToExecutable = getPathToExecutable(command);
+                    if (pathToExecutable != null) {
+                        System.out.println(command + " is " + pathToExecutable);
+                    } else {
+                        System.out.println(command + ": not found");
+                    }
                 }
             } else {
                 System.out.println(input + ": command not found");
