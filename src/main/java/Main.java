@@ -1,72 +1,86 @@
 import java.io.File;
-import java.io.InputStream;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Scanner;
 
 public class Main {
-    public static void main(String[] args) throws Exception {
+    public static void main(String[] args) {
         Scanner scanner = new Scanner(System.in);
-        
+
         while (true) {
             System.out.print("$ ");
+            if (!scanner.hasNextLine()) {
+                break;
+            }
+
             String input = scanner.nextLine().trim();
-            
             if (input.isEmpty()) {
                 continue;
             }
 
-            String[] inputParts = input.split(" ");
-            String command = inputParts[0];
+            // Parse the command line string into separate arguments handling single quotes
+            List<String> parsedArgs = parseArguments(input);
+            if (parsedArgs.isEmpty()) {
+                continue;
+            }
 
+            String command = parsedArgs.get(0);
+
+            // Handle built-in commands
             if (command.equals("exit")) {
-                break;
-            } else if (command.equals("echo")) {
-                if (input.length() > 5) {
-                    System.out.println(input.substring(5));
-                } else {
-                    System.out.println();
+                if (parsedArgs.size() > 1 && parsedArgs.get(1).equals("0")) {
+                    System.exit(0);
                 }
+            } else if (command.equals("echo")) {
+                // Print all arguments separated by a single space
+                for (int i = 1; i < parsedArgs.size(); i++) {
+                    System.out.print(parsedArgs.get(i));
+                    if (i < parsedArgs.size() - 1) {
+                        System.out.print(" ");
+                    }
+                }
+                System.out.println();
+            } else if (command.equals("pwd")) {
+                System.out.println(System.getProperty("user.dir"));
             } else if (command.equals("type")) {
-                if (inputParts.length < 2) {
+                if (parsedArgs.size() < 2) {
+                    System.out.println("type: missing operand");
                     continue;
                 }
-                String targetCommand = inputParts[1];
-                
-                if (targetCommand.equals("echo") || targetCommand.equals("exit") || targetCommand.equals("type")) {
-                    System.out.println(targetCommand + " is a shell builtin");
+                String targetCmd = parsedArgs.get(1);
+                if (targetCmd.equals("echo") || targetCmd.equals("exit") || targetCmd.equals("type") || targetCmd.equals("pwd")) {
+                    System.out.println(targetCmd + " is a shell builtin");
                 } else {
-                    String pathToExecutable = getPathToExecutable(targetCommand);
-                    if (pathToExecutable != null) {
-                        System.out.println(targetCommand + " is " + pathToExecutable);
+                    String path = getPath(targetCmd);
+                    if (path != null) {
+                        System.out.println(targetCmd + " is " + path);
                     } else {
-                        System.out.println(targetCommand + ": not found");
+                        System.out.println(targetCmd + ": not found");
                     }
                 }
             } else {
-                String pathToExecutable = getPathToExecutable(command);
-                
-                if (pathToExecutable != null) {
-                    // Create the full arguments array where argument 0 is the clean command name
-                    String[] cmdArray = new String[inputParts.length];
-                    cmdArray[0] = command; // e.g., "custom_exe_5395"
-                    for (int i = 1; i < inputParts.length; i++) {
-                        cmdArray[i] = inputParts[i];
-                    }
-
+                // Handle external executables (e.g., cat)
+                String fullPath = getPath(command);
+                if (fullPath != null) {
                     try {
-                        // Use Runtime.exec with the absolute path, but passing our custom clean cmdArray
-                        Process process = Runtime.getRuntime().exec(cmdArray, null, null);
-
-                        // Safely pipe the process output stream back to stdout
-                        InputStream inputStream = process.getInputStream();
-                        byte[] buffer = new byte[1024];
-                        int bytesRead;
-                        while ((bytesRead = inputStream.read(buffer)) != -1) {
-                            System.out.write(buffer, 0, bytesRead);
-                        }
+                        // Pass the entire parsed arguments list directly to ProcessBuilder
+                        ProcessBuilder pb = new ProcessBuilder(parsedArgs);
+                        pb.redirectErrorStream(true);
+                        Process process = pb.start();
                         
+                        // Read and print the executable's output
+                        try (Scanner processScanner = new Scanner(process.getInputStream())) {
+                            while (processScanner.hasNextLine()) {
+                                System.out.println(processScanner.nextLine());
+                            }
+                        }
                         process.waitFor();
-                    } catch (Exception e) {
-                        System.out.println(command + ": command not found");
+                    } catch (IOException | InterruptedException e) {
+                        System.out.println(command + ": execution failed");
                     }
                 } else {
                     System.out.println(command + ": command not found");
@@ -75,17 +89,61 @@ public class Main {
         }
     }
 
-    private static String getPathToExecutable(String command) {
-        String pathEnv = System.getenv("PATH");
-        if (pathEnv == null || pathEnv.isEmpty()) {
-            return null;
+    /**
+     * Parses a command string into a list of arguments, respecting single quotes.
+     */
+    private static List<String> parseArguments(String input) {
+        List<String> args = new ArrayList<>();
+        StringBuilder currentArg = new StringBuilder();
+        boolean insideSingleQuotes = false;
+        boolean inArgument = false; // Ensures empty quotes '' are captured if necessary or trigger context
+
+        for (int i = 0; i < input.length(); i++) {
+            char c = input.charAt(i);
+
+            if (insideSingleQuotes) {
+                if (c == '\'') {
+                    insideSingleQuotes = false; // Exit quote block
+                } else {
+                    currentArg.append(c); // Everything inside is literal
+                }
+            } else {
+                if (c == '\'') {
+                    insideSingleQuotes = true;
+                    inArgument = true; // Mark that we're assembling an argument block
+                } else if (Character.isWhitespace(c)) {
+                    if (inArgument) {
+                        args.add(currentArg.toString());
+                        currentArg.setLength(0);
+                        inArgument = false;
+                    }
+                } else {
+                    currentArg.append(c);
+                    inArgument = true;
+                }
+            }
         }
+
+        // Flush any remaining argument at the end of the string
+        if (inArgument) {
+            args.add(currentArg.toString());
+        }
+
+        return args;
+    }
+
+    /**
+     * Helper to locate an executable within system PATH environment variables.
+     */
+    private static String getPath(String command) {
+        String pathEnv = System.getenv("PATH");
+        if (pathEnv == null) return null;
 
         String[] directories = pathEnv.split(File.pathSeparator);
         for (String directory : directories) {
-            File file = new File(directory, command);
-            if (file.exists() && file.canExecute()) {
-                return file.getAbsolutePath();
+            Path path = Paths.get(directory, command);
+            if (Files.isExecutable(path)) {
+                return path.toString();
             }
         }
         return null;
