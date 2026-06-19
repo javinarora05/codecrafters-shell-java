@@ -1,3 +1,4 @@
+import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Scanner;
@@ -13,7 +14,7 @@ public class Main {
             String input = scanner.nextLine().trim();
             if (input.isEmpty()) continue;
 
-            // --- ONE SIMPLE FOR-LOOP TO PARSE EVERYTHING ---
+            // --- 1. PARSE EVERYTHING USING A FOR-LOOP ---
             List<String> parsedArgs = new ArrayList<>();
             StringBuilder currentArg = new StringBuilder();
             
@@ -62,14 +63,12 @@ public class Main {
 
             if (parsedArgs.isEmpty()) continue;
 
-            // --- COMMAND EXECUTION ---
+            // --- 2. COMMAND EXECUTION ---
             String command = parsedArgs.get(0);
 
             if (command.equals("exit")) {
                 break;
             } else if (command.equals("echo")) {
-                // Fix: Safely print individual parts separated by ONE space 
-                // while keeping the internal spaces of any single argument intact!
                 for (int i = 1; i < parsedArgs.size(); i++) {
                     System.out.print(parsedArgs.get(i));
                     if (i < parsedArgs.size() - 1) {
@@ -77,7 +76,36 @@ public class Main {
                     }
                 }
                 System.out.println();
+            } else if (command.equals("type")) {
+                // Handle the 'type' command requirement for stage MG5
+                if (parsedArgs.size() < 2) {
+                    continue;
+                }
+                String target = parsedArgs.get(1);
+
+                if (target.equals("echo") || target.equals("exit") || target.equals("type")) {
+                    System.out.println(target + " is a shell builtin");
+                } else {
+                    // Search for the executable in environmental PATH directories
+                    String pathEnv = System.getenv("PATH");
+                    String[] directories = pathEnv.split(":");
+                    boolean found = false;
+
+                    for (String dir : directories) {
+                        File file = new File(dir, target);
+                        if (file.exists() && file.canExecute()) {
+                            System.out.println(target + " is " + file.getAbsolutePath());
+                            found = true;
+                            break;
+                        }
+                    }
+
+                    if (!found) {
+                        System.out.println(target + ": not found");
+                    }
+                }
             } else {
+                // Handle external commands (cat, custom_exe, etc.)
                 try {
                     ProcessBuilder pb = new ProcessBuilder(parsedArgs);
                     pb.inheritIO();
