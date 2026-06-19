@@ -1,4 +1,5 @@
 import java.io.File;
+import java.io.FileOutputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Scanner;
@@ -36,20 +37,19 @@ public class Main {
             boolean inSingleQuotes = false;
             boolean hasArg = false;
 
-            // --- OPTIMIZED SINGLE-PASS PARSER WITH ESCAPE LOGIC ---
+            // --- OPTIMIZED SINGLE-PASS PARSER ---
             for (int i = 0; i < input.length(); i++) {
                 char c = input.charAt(i);
 
                 if (inDoubleQuotes) {
                     if (c == '\\') {
-                        // Look ahead to check if it's escaping a special char inside double quotes
                         if (i + 1 < input.length()) {
                             char next = input.charAt(i + 1);
                             if (next == '"' || next == '\\') {
                                 argBuilder.append(next);
-                                i++; // Skip the next character since we consumed it
+                                i++;
                             } else {
-                                argBuilder.append(c); // Treat backslash literally
+                                argBuilder.append(c);
                             }
                         } else {
                             argBuilder.append(c);
@@ -66,7 +66,6 @@ public class Main {
                         argBuilder.append(c);
                     }
                 } else {
-                    // Outside of any quotes
                     if (c == '\\') {
                         if (i + 1 < input.length()) {
                             argBuilder.append(input.charAt(i + 1));
@@ -98,46 +97,92 @@ public class Main {
 
             if (parsedArgs.isEmpty()) continue;
 
-            // --- COMMAND EXECUTION ---
+            // --- REDIRECTION DETECTION AND SETUP ---
+            String redirectFile = null;
+            // Scan backward to find redirection tokens
+            for (int i = 0; i < parsedArgs.size(); i++) {
+                String arg = parsedArgs.get(i);
+                if ((arg.equals(">") || arg.equals("1>")) && i + 1 < parsedArgs.size()) {
+                    redirectFile = parsedArgs.get(i + 1);
+                    // Truncate the list to exclude the redirection parts from command arguments
+                    parsedArgs = parsedArgs.subList(0, i);
+                    break;
+                }
+            }
+
+            if (parsedArgs.isEmpty()) continue;
             String command = parsedArgs.get(0);
 
-            if (command.equals("exit")) {
-                break;
-            } else if (command.equals("echo")) {
-                int size = parsedArgs.size();
-                for (int i = 1; i < size; i++) {
-                    System.out.print(parsedArgs.get(i));
-                    if (i < size - 1) {
-                        System.out.print(" ");
+            // Setup file redirection output stream if required
+            FileOutputStream fos = null;
+            java.io.PrintStream originalOut = System.out;
+            try {
+                if (redirectFile != null) {
+                    File file = new File(redirectFile);
+                    // Ensure parent directories exist if applicable
+                    if (file.getParentFile() != null) {
+                        file.getParentFile().mkdirs();
                     }
+                    fos = new FileOutputStream(file);
+                    System.setOut(new java.io.PrintStream(fos));
                 }
-                System.out.println();
-            } else if (command.equals("type")) {
-                if (parsedArgs.size() < 2) continue;
-                String target = parsedArgs.get(1);
 
-                if (target.equals("echo") || target.equals("exit") || target.equals("type")) {
-                    System.out.println(target + " is a shell builtin");
-                } else {
-                    boolean found = false;
-                    for (File dir : PATH_DIRS) {
-                        File file = new File(dir, target);
-                        if (file.exists() && file.canExecute()) {
-                            System.out.println(target + " is " + file.getAbsolutePath());
-                            found = true;
-                            break;
+                // --- COMMAND EXECUTION ---
+                if (command.equals("exit")) {
+                    break;
+                } else if (command.equals("echo")) {
+                    int size = parsedArgs.size();
+                    for (int i = 1; i < size; i++) {
+                        System.out.print(parsedArgs.get(i));
+                        if (i < size - 1) {
+                            System.out.print(" ");
                         }
                     }
-                    if (!found) {
-                        System.out.println(target + ": not found");
+                    System.out.println();
+                } else if (command.equals("type")) {
+                    if (parsedArgs.size() < 2) continue;
+                    String target = parsedArgs.get(1);
+
+                    if (target.equals("echo") || target.equals("exit") || target.equals("type")) {
+                        System.out.println(target + " is a shell builtin");
+                    } else {
+                        boolean found = false;
+                        for (File dir : PATH_DIRS) {
+                            File file = new File(dir, target);
+                            if (file.exists() && file.canExecute()) {
+                                System.out.println(target + " is " + file.getAbsolutePath());
+                                found = true;
+                                break;
+                            }
+                        }
+                        if (!found) {
+                            System.out.println(target + ": not found");
+                        }
+                    }
+                } else {
+                    try {
+                        ProcessBuilder pb = new ProcessBuilder(parsedArgs);
+                        // Redirect standard output to file if requested, keep standard error on console
+                        if (redirectFile != null) {
+                            pb.redirectOutput(new File(redirectFile));
+                            pb.redirectError(ProcessBuilder.Redirect.INHERIT);
+                        } else {
+                            pb.inheritIO();
+                        }
+                        pb.start().waitFor();
+                    } catch (Exception e) {
+                        System.out.println(command + ": command not found");
                     }
                 }
-            } else {
-                try {
-                    ProcessBuilder pb = new ProcessBuilder(parsedArgs);
-                    pb.inheritIO().start().waitFor();
-                } catch (Exception e) {
-                    System.out.println(command + ": command not found");
+            } catch (Exception e) {
+                e.printStackTrace();
+            } finally {
+                // Restore standard output back to console safely
+                if (redirectFile != null) {
+                    System.setOut(originalOut);
+                    try {
+                        if (fos != null) fos.close();
+                    } catch (Exception ignored) {}
                 }
             }
         }
