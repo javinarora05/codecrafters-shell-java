@@ -4,7 +4,6 @@ import java.util.List;
 import java.util.Scanner;
 
 public class Main {
-    // Cache the PATH directories once on startup to eliminate split overhead inside the loop
     private static final File[] PATH_DIRS;
     static {
         String pathEnv = System.getenv("PATH");
@@ -37,12 +36,25 @@ public class Main {
             boolean inSingleQuotes = false;
             boolean hasArg = false;
 
-            // --- EFFICIENT SINGLE-PASS ESCAPE PARSER ---
+            // --- OPTIMIZED SINGLE-PASS PARSER WITH ESCAPE LOGIC ---
             for (int i = 0; i < input.length(); i++) {
                 char c = input.charAt(i);
 
                 if (inDoubleQuotes) {
-                    if (c == '"') {
+                    if (c == '\\') {
+                        // Look ahead to check if it's escaping a special char inside double quotes
+                        if (i + 1 < input.length()) {
+                            char next = input.charAt(i + 1);
+                            if (next == '"' || next == '\\') {
+                                argBuilder.append(next);
+                                i++; // Skip the next character since we consumed it
+                            } else {
+                                argBuilder.append(c); // Treat backslash literally
+                            }
+                        } else {
+                            argBuilder.append(c);
+                        }
+                    } else if (c == '"') {
                         inDoubleQuotes = false;
                     } else {
                         argBuilder.append(c);
@@ -56,11 +68,10 @@ public class Main {
                 } else {
                     // Outside of any quotes
                     if (c == '\\') {
-                        // Backslash escape logic: treat next character as literal text
                         if (i + 1 < input.length()) {
                             argBuilder.append(input.charAt(i + 1));
                             hasArg = true;
-                            i++; // Skip the next character since we consumed it literally
+                            i++; 
                         }
                     } else if (c == '"') {
                         inDoubleQuotes = true;
