@@ -24,12 +24,16 @@ public class Main {
     }
 
     private static List<BackgroundJob> backgroundJobs = new ArrayList<>();
+    // Explicit global tracking pointers for shell job context
+    private static int currentJobId = -1;
+    private static int previousJobId = -1;
 
     public static void main(String[] args) throws Exception {
         BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
         List<String> builtins = Arrays.asList("exit", "echo", "type", "pwd", "cd", "jobs");
 
         while (true) {
+            // Automatically reap and print ONLY newly finished tasks before the prompt
             reapCompletedJobs();
 
             System.out.print("$ ");
@@ -50,7 +54,6 @@ public class Main {
                 continue;
             }
 
-            // Check if this command pipeline contains a pipe '|'
             if (tokenList.contains("|")) {
                 handlePipeline(tokenList);
                 continue;
@@ -129,6 +132,10 @@ public class Main {
                     System.out.flush();
 
                     backgroundJobs.add(new BackgroundJob(jobId, pid, commandLine, "Running", process));
+                    
+                    // Update global job markers upon context shift
+                    previousJobId = currentJobId;
+                    currentJobId = jobId;
                 } else {
                     if (redirectFile != null) {
                         File file = new File(redirectFile);
@@ -161,7 +168,6 @@ public class Main {
         }
     }
 
-    // FIX FOR BR6: Support executing single pipe pipelines
     private static void handlePipeline(List<String> tokens) {
         List<List<String>> commands = new ArrayList<>();
         List<String> currentCmd = new ArrayList<>();
@@ -176,76 +182,36 @@ public class Main {
         }
         commands.add(currentCmd);
 
-        // This implementation connects processes via standard ProcessBuilder features
         try {
             List<ProcessBuilder> builders = new ArrayList<>();
             for (List<String> cmd : commands) {
                 builders.add(new ProcessBuilder(cmd));
             }
 
-            // Route the final command's output and errors to the terminal
             builders.get(builders.size() - 1).redirectOutput(ProcessBuilder.Redirect.INHERIT);
             builders.get(builders.size() - 1).redirectError(ProcessBuilder.Redirect.INHERIT);
-            // Route first command's input from terminal
             builders.get(0).redirectInput(ProcessBuilder.Redirect.INHERIT);
 
             List<Process> processes = ProcessBuilder.startPipeline(builders);
-            
-            // Wait for the final command in the chain to finish
             processes.get(processes.size() - 1).waitFor();
         } catch (Exception e) {
             System.out.println("Pipeline execution failed.");
         }
     }
 
+    // Prints list items using fixed global ID pointers
     private static void printWithMarkers(List<BackgroundJob> list) {
-        int mostRecentRunningIdx = -1;
-        int secondMostRecentRunningIdx = -1;
-
-        for (int i = list.size() - 1; i >= 0; i--) {
-            if (list.get(i).status.equals("Running")) {
-                if (mostRecentRunningIdx == -1) {
-                    mostRecentRunningIdx = i;
-                } else if (secondMostRecentRunningIdx == -1) {
-                    secondMostRecentRunningIdx = i;
-                    break;
-                }
-            }
-        }
-
-        for (int i = 0; i < list.size(); i++) {
-            BackgroundJob job = list.get(i);
+        for (BackgroundJob job : list) {
             String marker = " ";
-            
-            if (job.status.equals("Running")) {
-                if (i == mostRecentRunningIdx) marker = "+";
-                else if (i == secondMostRecentRunningIdx) marker = "-";
-            } else if (job.status.equals("Done")) {
-                if (i == list.size() - 1 || mostRecentRunningIdx == -1) marker = "+";
-                else if (i == list.size() - 2) marker = "-";
-            }
-
+            if (job.id == currentJobId) marker = "+";
+            else if (job.id == previousJobId) marker = "-";
             System.out.printf("[%d]%s  %-24s%s\n", job.id, marker, job.status, job.command);
         }
     }
 
+    // Pre-prompt async monitoring reaper
     private static void reapCompletedJobs() {
-        int mostRecentRunningIdx = -1;
-        int secondMostRecentRunningIdx = -1;
-
-        for (int i = backgroundJobs.size() - 1; i >= 0; i--) {
-            if (backgroundJobs.get(i).status.equals("Running")) {
-                if (mostRecentRunningIdx == -1) {
-                    mostRecentRunningIdx = i;
-                } else if (secondMostRecentRunningIdx == -1) {
-                    secondMostRecentRunningIdx = i;
-                    break;
-                }
-            }
-        }
-
-        for (int i = 0; i < backgroundJobs.size(); i++) {
-            BackgroundJob job = backgroundJobs.get(i);
+        for (BackgroundJob job : backgroundJobs) {
             if (!job.process.isAlive() && job.status.equals("Running")) {
                 job.status = "Done";
                 if (job.command.endsWith(" &")) {
@@ -253,22 +219,29 @@ public class Main {
                 }
 
                 String marker = " ";
-                if (i == mostRecentRunningIdx) marker = "+";
-                else if (i == secondMostRecentRunningIdx) marker = "-";
+                if (job.id == currentJobId) marker = "+";
+                else if (job.id == previousJobId) marker = "-";
 
                 System.out.printf("[%d]%s  %-24s%s\n", job.id, marker, job.status, job.command);
             }
         }
 
+        // Purge reported entries and rebalance pointers
+        boolean changed = false;
         Iterator<BackgroundJob> iterator = backgroundJobs.iterator();
         while (iterator.hasNext()) {
             if (iterator.next().status.equals("Done")) {
                 iterator.remove();
+                changed = true;
             }
+        }
+        if (changed) {
+            updatePointers();
         }
         System.out.flush();
     }
 
+    // Custom builtin jobs command execution handler
     private static void reapAndPrintJobsBuiltin() {
         for (BackgroundJob job : backgroundJobs) {
             if (!job.process.isAlive() && job.status.equals("Running")) {
@@ -281,13 +254,36 @@ public class Main {
 
         printWithMarkers(backgroundJobs);
 
+        boolean changed = false;
         Iterator<BackgroundJob> iterator = backgroundJobs.iterator();
         while (iterator.hasNext()) {
             if (iterator.next().status.equals("Done")) {
                 iterator.remove();
+                changed = true;
             }
         }
+        if (changed) {
+            updatePointers();
+        }
         System.out.flush();
+    }
+
+    // Recalculates pointers dynamically ONLY when reported items exit tracking scope
+    private static void updatePointers() {
+        int mostRecent = -1;
+        int secondRecent = -1;
+        for (int i = backgroundJobs.size() - 1; i >= 0; i--) {
+            if (backgroundJobs.get(i).status.equals("Running")) {
+                if (mostRecent == -1) {
+                    mostRecent = backgroundJobs.get(i).id;
+                } else if (secondRecent == -1) {
+                    secondRecent = backgroundJobs.get(i).id;
+                    break;
+                }
+            }
+        }
+        currentJobId = mostRecent;
+        previousJobId = secondRecent;
     }
 
     private static List<String> parseCommandLine(String commandLine) {
