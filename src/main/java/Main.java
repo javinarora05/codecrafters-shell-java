@@ -30,6 +30,7 @@ public class Main {
         List<String> builtins = Arrays.asList("exit", "echo", "type", "pwd", "cd", "jobs");
 
         while (true) {
+            // Automatically reap and print ONLY newly finished tasks before the prompt
             reapCompletedJobs();
 
             System.out.print("$ ");
@@ -154,7 +155,6 @@ public class Main {
         }
     }
 
-    // FIX FOR BV8: Group and print "Done" tasks first, followed by "Running" tasks
     private static void printWithMarkers(List<BackgroundJob> list) {
         int mostRecentIdx = -1;
         int secondMostRecentIdx = -1;
@@ -168,7 +168,7 @@ public class Main {
             }
         }
 
-        // 1. Print all "Done" jobs first
+        // Print Done tasks first
         for (int i = 0; i < list.size(); i++) {
             BackgroundJob job = list.get(i);
             if (job.status.equals("Done")) {
@@ -179,7 +179,7 @@ public class Main {
             }
         }
 
-        // 2. Print remaining "Running" jobs
+        // Print Running tasks next
         for (int i = 0; i < list.size(); i++) {
             BackgroundJob job = list.get(i);
             if (job.status.equals("Running")) {
@@ -191,32 +191,47 @@ public class Main {
         }
     }
 
+    // FIX FOR BV8: Only print jobs that explicitly change state to "Done"
     private static void reapCompletedJobs() {
-        boolean hasDoneJobs = false;
-        
-        for (BackgroundJob job : backgroundJobs) {
+        int mostRecentIdx = -1;
+        int secondMostRecentIdx = -1;
+
+        for (int i = backgroundJobs.size() - 1; i >= 0; i--) {
+            if (mostRecentIdx == -1) {
+                mostRecentIdx = i;
+            } else if (secondMostRecentIdx == -1) {
+                secondMostRecentIdx = i;
+                break;
+            }
+        }
+
+        for (int i = 0; i < backgroundJobs.size(); i++) {
+            BackgroundJob job = backgroundJobs.get(i);
             if (!job.process.isAlive() && job.status.equals("Running")) {
                 job.status = "Done";
                 if (job.command.endsWith(" &")) {
                     job.command = job.command.substring(0, job.command.length() - 2);
                 }
-                hasDoneJobs = true;
+
+                String marker = " ";
+                if (i == mostRecentIdx) marker = "+";
+                else if (i == secondMostRecentIdx) marker = "-";
+
+                // Print ONLY this specific done task
+                System.out.printf("[%d]%s  %-24s%s\n", job.id, marker, job.status, job.command);
             }
         }
 
-        if (hasDoneJobs) {
-            printWithMarkers(backgroundJobs);
-            
-            Iterator<BackgroundJob> iterator = backgroundJobs.iterator();
-            while (iterator.hasNext()) {
-                if (iterator.next().status.equals("Done")) {
-                    iterator.remove();
-                }
+        Iterator<BackgroundJob> iterator = backgroundJobs.iterator();
+        while (iterator.hasNext()) {
+            if (iterator.next().status.equals("Done")) {
+                iterator.remove();
             }
-            System.out.flush();
         }
+        System.out.flush();
     }
 
+    // Explicit 'jobs' command still reports all remaining tasks
     private static void reapAndPrintJobsBuiltin() {
         for (BackgroundJob job : backgroundJobs) {
             if (!job.process.isAlive() && job.status.equals("Running")) {
