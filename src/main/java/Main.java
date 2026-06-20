@@ -4,6 +4,8 @@ import java.io.File;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Scanner;
 
 public class Main {
@@ -12,6 +14,7 @@ public class Main {
 
         while (true) {
             System.out.print("$ ");
+            if (!scanner.hasNextLine()) break;
             String input = scanner.nextLine().trim();
 
             if (input.isEmpty()) {
@@ -25,15 +28,17 @@ public class Main {
     private static void executePipeline(String input) {
         String[] pipeStages = input.split("\\|");
         
-        // This will hold the output of the previous stage
+        // This will track the stream pipeline connections
         InputStream currentIn = new ByteArrayInputStream(new byte[0]);
+        List<Thread> activeThreads = new ArrayList<>();
+        List<Process> activeProcesses = new ArrayList<>();
 
         for (int i = 0; i < pipeStages.length; i++) {
             String stage = pipeStages[i].trim();
             String[] args = stage.split("\\s+");
             if (args.length == 0 || args[0].isEmpty()) continue;
 
-            // Strip quotes from arguments if present
+            // Strip quotes from arguments
             for (int j = 0; j < args.length; j++) {
                 if (args[j].startsWith("\"") && args[j].endsWith("\"") && args[j].length() >= 2) {
                     args[j] = args[j].substring(1, args[j].length() - 1);
@@ -42,10 +47,11 @@ public class Main {
 
             String command = args[0];
             boolean isLastStage = (i == pipeStages.length - 1);
-            ByteArrayOutputStream stageOut = new ByteArrayOutputStream();
 
             if (isBuiltin(command)) {
+                ByteArrayOutputStream stageOut = new ByteArrayOutputStream();
                 executeBuiltin(command, args, currentIn, stageOut);
+                
                 if (isLastStage) {
                     System.out.print(stageOut.toString(StandardCharsets.UTF_8));
                 } else {
@@ -60,20 +66,25 @@ public class Main {
                     
                     ProcessBuilder pb = new ProcessBuilder(args);
                     Process process = pb.start();
+                    activeProcesses.add(process);
 
-                    // Concurrently pump the input data into the process stdin
+                    // 1. Pump the input data from the previous stage into this process's stdin asynchronously
                     final InputStream fIn = currentIn;
                     OutputStream pOut = process.getOutputStream();
                     Thread inputPump = new Thread(() -> {
                         try {
                             fIn.transferTo(pOut);
+                        } catch (Exception ignored) {}
+                        try {
                             pOut.close();
                         } catch (Exception ignored) {}
                     });
                     inputPump.start();
+                    activeThreads.add(inputPump);
 
+                    // 2. Route the output stream
                     if (isLastStage) {
-                        // Actively stream process stdout to system console out
+                        // The last stage pumps directly to console stdout concurrently
                         InputStream pIn = process.getInputStream();
                         Thread outputPump = new Thread(() -> {
                             try {
@@ -81,30 +92,58 @@ public class Main {
                             } catch (Exception ignored) {}
                         });
                         outputPump.start();
-
+                        activeThreads.add(outputPump);
+                        
+                        // Handle standard error
                         process.getErrorStream().transferTo(System.err);
-                        process.waitFor();
-                        inputPump.join();
-                        outputPump.join();
                     } else {
-                        // Intermediate stages: capture output concurrently
+                        // Intermediate stage: Pipe directly to a memory stream structure 
+                        // but DO NOT wait for it to finish. Create a pipe buffer.
+                        java.io.PipedOutputStream pipedOut = new java.io.PipedOutputStream();
+                        java.io.PipedInputStream pipedIn = new java.io.PipedInputStream(pipedOut);
+                        
                         InputStream pIn = process.getInputStream();
                         Thread outputPump = new Thread(() -> {
                             try {
-                                pIn.transferTo(stageOut);
+                                pIn.transferTo(pipedOut);
+                            } catch (Exception ignored) {}
+                            try {
+                                pipedOut.close();
                             } catch (Exception ignored) {}
                         });
                         outputPump.start();
+                        activeThreads.add(outputPump);
 
-                        process.waitFor();
-                        inputPump.join();
-                        outputPump.join();
-                        currentIn = new ByteArrayInputStream(stageOut.toByteArray());
+                        // Pass this piped reader stream to the next command stage
+                        currentIn = pipedIn;
                     }
                 } catch (Exception e) {
                     System.out.println(stage + ": command not found");
+                    // Cleanup any running processes to prevent hanging terminal loops
+                    for (Process p : activeProcesses) p.destroyForcibly();
                     return;
                 }
+            }
+        }
+
+        // Wait for execution completion loops safely
+        try {
+            // Wait for the final execution process to wrap up cleanly
+            if (!activeProcesses.isEmpty()) {
+                Process lastProcess = activeProcesses.get(activeProcesses.size() - 1);
+                lastProcess.waitFor();
+            }
+            
+            // Join all active stream management threads
+            for (Thread t : activeThreads) {
+                t.join(500); // 500ms max timeout constraint per process thread
+            }
+        } catch (Exception ignored) {}
+
+        // Forcibly shut down any infinite stream processes (like tail -f) that are still lingering
+        for (Process p : activeProcesses) {
+            if (p.isAlive()) {
+                p.destroyForcibly();
             }
         }
     }
