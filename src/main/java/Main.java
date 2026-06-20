@@ -29,7 +29,6 @@ public class Main {
                 if (c == '\t') {
                     String currentText = currentLine.toString();
                     
-                    // Only perform completion if the user hasn't already typed a full command/arguments
                     if (!currentText.contains(" ") && !currentText.isEmpty()) {
                         if ("echo".startsWith(currentText)) {
                             currentLine.setLength(0);
@@ -54,7 +53,6 @@ public class Main {
                         continue;
                     }
                     
-                    // Clear line and reprint the completed string
                     System.out.print("\r\u001B[K$ " + currentLine.toString());
                     System.out.flush();
                     
@@ -151,7 +149,14 @@ public class Main {
         String stderrRedirectFile = null;
         boolean appendStdout = false;
         boolean appendStderr = false;
+        boolean isBackgroundJob = false;
         List<String> commandArgs = new ArrayList<>();
+
+        // Check if the last token specifies a background job sequence
+        if (!tokens.isEmpty() && tokens.get(tokens.size() - 1).equals("&")) {
+            isBackgroundJob = true;
+            tokens.remove(tokens.size() - 1);
+        }
 
         for (int i = 0; i < tokens.size(); i++) {
             String token = tokens.get(i);
@@ -219,7 +224,6 @@ public class Main {
         }
 
         if (baseCommand.equals("jobs")) {
-            // Empty implementation for this stage as requested
             return;
         }
 
@@ -256,6 +260,7 @@ public class Main {
             return;
         }
 
+        // --- EXTERNAL COMMANDS ---
         try {
             ProcessBuilder pb = new ProcessBuilder(commandArgs);
 
@@ -282,7 +287,15 @@ public class Main {
             }
 
             Process process = pb.start();
-            process.waitFor();
+
+            if (isBackgroundJob) {
+                // For a background job, show info and don't call .waitFor()
+                long pid = process.pid();
+                System.out.println("[1] " + pid);
+            } else {
+                // Standard command execution blocks execution till process completion
+                process.waitFor();
+            }
 
         } catch (IOException | InterruptedException e) {
             System.out.println(baseCommand + ": command not found");
