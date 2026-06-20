@@ -21,29 +21,33 @@ public class Main {
             }
             
             // Basic tokenization (splits by spaces)
-            // Note: If you have advanced quoting logic from previous stages, 
-            // use your existing tokenization mechanism here instead.
+            // Note: If you have custom quoting logic from previous stages,
+            // make sure to use your tokenization here instead.
             String[] rawTokens = input.split("\\s+");
             List<String> tokens = new ArrayList<>();
             for (String t : rawTokens) {
                 tokens.add(t);
             }
             
-            // Handle built-ins like 'echo', 'type', 'pwd', 'cd' here if needed,
-            // or pass directly to external command handler:
             executeCommand(tokens);
         }
     }
 
     private static void executeCommand(List<String> tokens) {
-        String errorRedirectFile = null;
+        String stdoutRedirectFile = null;
+        String stderrRedirectFile = null;
         List<String> commandArgs = new ArrayList<>();
 
-        // Parse tokens to look for the '2>' operator
+        // Parse tokens to look for both '>' and '2>' operators
         for (int i = 0; i < tokens.size(); i++) {
-            if (tokens.get(i).equals("2>")) {
+            if (tokens.get(i).equals(">") || tokens.get(i).equals("1>")) {
                 if (i + 1 < tokens.size()) {
-                    errorRedirectFile = tokens.get(i + 1);
+                    stdoutRedirectFile = tokens.get(i + 1);
+                    i++; // Skip the filename token
+                }
+            } else if (tokens.get(i).equals("2>")) {
+                if (i + 1 < tokens.size()) {
+                    stderrRedirectFile = tokens.get(i + 1);
                     i++; // Skip the filename token
                 }
             } else {
@@ -58,21 +62,25 @@ public class Main {
         try {
             ProcessBuilder pb = new ProcessBuilder(commandArgs);
 
-            // Keep standard output writing to the terminal
-            pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
+            // Handle Standard Output Redirection (>)
+            if (stdoutRedirectFile != null) {
+                File outFile = new File(stdoutRedirectFile);
+                if (outFile.getParentFile() != null) {
+                    outFile.getParentFile().mkdirs();
+                }
+                pb.redirectOutput(ProcessBuilder.Redirect.to(outFile));
+            } else {
+                pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
+            }
 
-            if (errorRedirectFile != null) {
-                File errFile = new File(errorRedirectFile);
-                
-                // Create parent directories if they don't exist (e.g., /tmp/quz/)
+            // Handle Standard Error Redirection (2>)
+            if (stderrRedirectFile != null) {
+                File errFile = new File(stderrRedirectFile);
                 if (errFile.getParentFile() != null) {
                     errFile.getParentFile().mkdirs();
                 }
-                
-                // Redirect standard error stream to the specified file
                 pb.redirectError(ProcessBuilder.Redirect.to(errFile));
             } else {
-                // If '2>' isn't provided, standard error prints to the terminal normally
                 pb.redirectError(ProcessBuilder.Redirect.INHERIT);
             }
 
