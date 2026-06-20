@@ -3,13 +3,36 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
 import java.util.Scanner;
 
 public class Main {
+    
+    // Track background jobs
+    private static class BackgroundJob {
+        int jobId;
+        Process process;
+        String command;
+
+        BackgroundJob(int jobId, Process process, String command) {
+            this.jobId = jobId;
+            this.process = process;
+            this.command = command;
+        }
+    }
+
+    private static final List<BackgroundJob> activeJobs = new ArrayList<>();
+    private static int nextJobId = 1;
+
     public static void main(String[] args) throws Exception {
         Scanner scanner = new Scanner(System.in);
 
         while (true) {
+            // Check and report on any background jobs that finished before showing the prompt
+            checkCompletedJobs();
+
             System.out.print("$ ");
             if (!scanner.hasNextLine()) break;
             String input = scanner.nextLine().trim();
@@ -22,15 +45,29 @@ public class Main {
         }
     }
 
+    private static void checkCompletedJobs() {
+        Iterator<BackgroundJob> iterator = activeJobs.iterator();
+        while (iterator.hasNext()) {
+            BackgroundJob job = iterator.next();
+            if (!job.process.isAlive()) {
+                // Print completion format: [1]+  Done                 cat /tmp/blueberry-45
+                System.out.println("[" + job.jobId + "]+  Done                 " + job.command);
+                iterator.remove();
+            }
+        }
+    }
+
     private static void executePipeline(String input) {
-        // Check if this command should run as a background job
         boolean isBackground = false;
+        String originalCommand = input; // Keep exact copy for job tracking output
+        
         if (input.endsWith("&")) {
             isBackground = true;
             input = input.substring(0, input.length() - 1).trim();
+            // Match the exact naming spacing expected by CodeCrafters tester
+            originalCommand = input; 
         }
 
-        // If it's a simple builtin execution without a pipe, run it natively
         if (!input.contains("|")) {
             String[] args = input.split("\\s+");
             if (args.length > 0 && isBuiltin(args[0])) {
@@ -49,15 +86,16 @@ public class Main {
             Process process = pb.start();
 
             if (isBackground) {
-                // Print the job control format: [Job ID] PID
-                // CodeCrafters defaults to Job ID 1 for single background tasks
-                System.out.println("[1] " + process.pid());
+                int jobId = nextJobId++;
+                System.out.println("[" + jobId + "] " + process.pid());
                 
-                // Allow the streams to drain in the background without blocking the main loop
+                // Track this active process to report its termination later
+                activeJobs.add(new BackgroundJob(jobId, process, originalCommand));
+                
+                // Silently discard streams in the background so it doesn't leak into foreground operations
                 process.getInputStream().close();
                 process.getErrorStream().close();
             } else {
-                // Foreground task: stream synchronously and wait
                 process.getInputStream().transferTo(System.out);
                 process.getErrorStream().transferTo(System.err);
                 process.waitFor();
