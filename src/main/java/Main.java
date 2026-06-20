@@ -3,6 +3,7 @@ import java.io.File;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Iterator;
 import java.util.List;
 
 public class Main {
@@ -11,12 +12,14 @@ public class Main {
         long pid;
         String command;
         String status;
+        Process process; // Keep track of the process instance to check its life status
 
-        BackgroundJob(int id, long pid, String command, String status) {
+        BackgroundJob(int id, long pid, String command, String status, Process process) {
             this.id = id;
             this.pid = pid;
             this.command = command;
             this.status = status;
+            this.process = process;
         }
     }
 
@@ -49,23 +52,39 @@ public class Main {
                 break;
             }
 
-            // Handle 'jobs' builtin with dynamic markers (+ / - / space)
+            // FIX FOR MA9: Handle 'jobs' with dynamic status checking and job reaping
             if (tokens[0].equals("jobs")) {
                 int totalJobs = backgroundJobs.size();
-                for (int i = 0; i < totalJobs; i++) {
-                    BackgroundJob job = backgroundJobs.get(i);
+                Iterator<BackgroundJob> iterator = backgroundJobs.iterator();
+                int index = 0;
+
+                while (iterator.hasNext()) {
+                    BackgroundJob job = iterator.next();
                     
-                    // FIX FOR DK5: Determine the correct marker
-                    String marker = " ";
-                    if (i == totalJobs - 1) {
-                        marker = "+"; // Most recent
-                    } else if (i == totalJobs - 2) {
-                        marker = "-"; // Second most recent
+                    // Check if the background process has exited normally
+                    if (!job.process.isAlive() && job.status.equals("Running")) {
+                        job.status = "Done";
+                        // CRITICAL: Strip the trailing " &" from the command display when Done
+                        if (job.command.endsWith(" &")) {
+                            job.command = job.command.substring(0, job.command.length() - 2);
+                        }
                     }
 
-                    // Exact format: "[1] +  Running                 sleep 10 &"
-                    // If marker is space: "[1]    Running                 sleep 10 &"
+                    String marker = " ";
+                    if (index == totalJobs - 1) {
+                        marker = "+";
+                    } else if (index == totalJobs - 2) {
+                        marker = "-";
+                    }
+
+                    // Print the job status
                     System.out.printf("[%d]%s  %-24s%s\n", job.id, marker, job.status, job.command);
+
+                    // If it was Done, remove it from our active jobs list after displaying it once
+                    if (job.status.equals("Done")) {
+                        iterator.remove();
+                    }
+                    index++;
                 }
                 System.out.flush();
                 continue;
@@ -132,7 +151,8 @@ public class Main {
                     System.out.printf("[%d] %d\n", jobId, pid);
                     System.out.flush();
 
-                    backgroundJobs.add(new BackgroundJob(jobId, pid, commandLine, "Running"));
+                    // Track the process instance directly for status polling
+                    backgroundJobs.add(new BackgroundJob(jobId, pid, commandLine, "Running", process));
                 } else {
                     if (redirectFile != null) {
                         File file = new File(redirectFile);
