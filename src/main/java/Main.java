@@ -117,23 +117,22 @@ public class Main {
         }
 
         try {
-            // For background execution, safely use OS redirect logic instead of Java threads
-            String shellExecCommand = cleanCommand;
-            if (isBackground) {
-                shellExecCommand = cleanCommand + " > /dev/null 2>&1";
-            }
-
-            ProcessBuilder pb = new ProcessBuilder("/bin/sh", "-c", shellExecCommand);
+            ProcessBuilder pb = new ProcessBuilder("/bin/sh", "-c", cleanCommand);
             pb.environment().put("PATH", System.getenv("PATH"));
             
-            Process process = pb.start();
-
             if (isBackground) {
+                // Inherit stdout to allow background processes to print into the terminal dynamically
+                pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
+                pb.redirectError(ProcessBuilder.Redirect.DISCARD);
+                
+                Process process = pb.start();
+                
                 int jobId = getNextAvailableJobId();
                 System.out.println("[" + jobId + "] " + process.pid());
                 
                 activeJobs.add(new BackgroundJob(jobId, process, cleanCommand));
             } else {
+                Process process = pb.start();
                 process.getInputStream().transferTo(System.out);
                 process.getErrorStream().transferTo(System.err);
                 process.waitFor();
