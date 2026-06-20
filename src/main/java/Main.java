@@ -66,7 +66,6 @@ public class Main {
                 continue;
             }
 
-            // REDIRECTION PARSING (Moved up so builtins can access it)
             String redirectFile = null;
             boolean appendMode = false;
             int redirectStream = 1; 
@@ -104,7 +103,6 @@ public class Main {
                 continue;
             }
 
-            // Route builtins through a wrapper that respects redirection file configs
             if (tokens[0].equals("type") && tokens.length > 1) {
                 PrintStream originalOut = System.out;
                 PrintStream originalErr = System.err;
@@ -189,7 +187,6 @@ public class Main {
         }
     }
 
-    // Redirects JVM System streams temporarily for inner builtins
     private static void setupBuiltinRedirection(String redirectFile, boolean appendMode, int redirectStream) {
         if (redirectFile == null) return;
         try {
@@ -204,7 +201,7 @@ public class Main {
                 System.setErr(filePrintStream);
             }
         } catch (Exception e) {
-            // Fallback gracefully on setup error
+            // Fallback
         }
     }
 
@@ -327,6 +324,8 @@ public class Main {
             String marker = " ";
             if (job.id == currentJobId) marker = "+";
             else if (job.id == previousJobId) marker = "-";
+            
+            // Format state status configuration spaces to exactly match expected output alignment
             System.out.printf("[%d]%s  %-24s%s\n", job.id, marker, job.status, job.command);
         }
     }
@@ -361,6 +360,7 @@ public class Main {
         System.out.flush();
     }
 
+    // FIX FOR RQ2: Unified execution handler preventing double print race states
     private static void reapAndPrintJobsBuiltin() {
         for (BackgroundJob job : backgroundJobs) {
             if (!job.process.isAlive() && job.status.equals("Running")) {
