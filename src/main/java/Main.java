@@ -79,17 +79,16 @@ public class Main {
             try {
                 ProcessBuilder pb = new ProcessBuilder();
                 
-                // Redirection handling variables
                 String redirectFile = null;
                 boolean appendMode = false;
                 int redirectStream = 1; // 1 = stdout, 2 = stderr
                 int redirectIndex = -1;
 
-                // Scan args for redirection operators: >, >>, 2>, 2>>
+                // FIX FOR EL9: Support 1> and 1>> explicitly alongside >, >>, 2>, 2>>
                 for (int i = 0; i < execArgs.length; i++) {
-                    if (execArgs[i].equals(">")) {
+                    if (execArgs[i].equals(">") || execArgs[i].equals("1>")) {
                         redirectStream = 1; appendMode = false; redirectIndex = i; break;
-                    } else if (execArgs[i].equals(">>")) {
+                    } else if (execArgs[i].equals(">>") || execArgs[i].equals("1>>")) {
                         redirectStream = 1; appendMode = true; redirectIndex = i; break;
                     } else if (execArgs[i].equals("2>")) {
                         redirectStream = 2; appendMode = false; redirectIndex = i; break;
@@ -98,7 +97,6 @@ public class Main {
                     }
                 }
 
-                // If a redirection operator was found, strip it out of executable arguments
                 if (redirectIndex != -1 && redirectIndex + 1 < execArgs.length) {
                     redirectFile = execArgs[redirectIndex + 1];
                     execArgs = Arrays.copyOfRange(execArgs, 0, redirectIndex);
@@ -119,10 +117,8 @@ public class Main {
 
                     backgroundJobs.add(new BackgroundJob(jobId, pid, commandLine, "Running"));
                 } else {
-                    // Apply redirection if present
                     if (redirectFile != null) {
                         File file = new File(redirectFile);
-                        // Ensure parent directory structure exists if necessary
                         if (file.getParentFile() != null) {
                             file.getParentFile().mkdirs();
                         }
