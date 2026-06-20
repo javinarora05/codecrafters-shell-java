@@ -47,7 +47,6 @@ public class Main {
         while (iterator.hasNext()) {
             BackgroundJob job = iterator.next();
             if (!job.process.isAlive()) {
-                // Done notification MUST NOT include trailing '&'
                 System.out.println("[" + job.jobId + "]+  Done                 " + job.commandClean);
                 iterator.remove();
             }
@@ -79,10 +78,12 @@ public class Main {
             input = input.substring(0, input.length() - 1).trim();
         }
         
-        String cleanCommand = input; // Saved command without trailing &
+        String cleanCommand = input; 
 
         if (cleanCommand.equals("jobs")) {
             int size = activeJobs.size();
+            List<BackgroundJob> finishedDuringJobsCmd = new ArrayList<>();
+            
             for (int i = 0; i < size; i++) {
                 BackgroundJob job = activeJobs.get(i);
                 
@@ -93,9 +94,16 @@ public class Main {
                     marker = "-";
                 }
                 
-                // The 'jobs' list output MUST explicitly show the trailing ' &'
-                System.out.printf("[%d]%s  Running                 %s &\n", job.jobId, marker, job.commandClean);
+                // Actively check state right now to prevent race conditions with the tester
+                if (!job.process.isAlive()) {
+                    System.out.printf("[%d]%s  Done                 %s\n", job.jobId, marker, job.commandClean);
+                    finishedDuringJobsCmd.add(job);
+                } else {
+                    System.out.printf("[%d]%s  Running                 %s &\n", job.jobId, marker, job.commandClean);
+                }
             }
+            // Clean up any jobs that were reported completed during this run
+            activeJobs.removeAll(finishedDuringJobsCmd);
             return;
         }
 
