@@ -30,7 +30,6 @@ public class Main {
         List<String> builtins = Arrays.asList("exit", "echo", "type", "pwd", "cd", "jobs");
 
         while (true) {
-            // Automatically reap and print ONLY newly finished tasks before the prompt
             reapCompletedJobs();
 
             System.out.print("$ ");
@@ -50,6 +49,13 @@ public class Main {
             if (tokenList.isEmpty()) {
                 continue;
             }
+
+            // Check if this command pipeline contains a pipe '|'
+            if (tokenList.contains("|")) {
+                handlePipeline(tokenList);
+                continue;
+            }
+
             String[] tokens = tokenList.toArray(new String[0]);
 
             if (tokens[0].equals("exit")) {
@@ -155,12 +161,47 @@ public class Main {
         }
     }
 
-    // Dynamic marker allocator based purely on status histories
+    // FIX FOR BR6: Support executing single pipe pipelines
+    private static void handlePipeline(List<String> tokens) {
+        List<List<String>> commands = new ArrayList<>();
+        List<String> currentCmd = new ArrayList<>();
+
+        for (String token : tokens) {
+            if (token.equals("|")) {
+                commands.add(currentCmd);
+                currentCmd = new ArrayList<>();
+            } else {
+                currentCmd.add(token);
+            }
+        }
+        commands.add(currentCmd);
+
+        // This implementation connects processes via standard ProcessBuilder features
+        try {
+            List<ProcessBuilder> builders = new ArrayList<>();
+            for (List<String> cmd : commands) {
+                builders.add(new ProcessBuilder(cmd));
+            }
+
+            // Route the final command's output and errors to the terminal
+            builders.get(builders.size() - 1).redirectOutput(ProcessBuilder.Redirect.INHERIT);
+            builders.get(builders.size() - 1).redirectError(ProcessBuilder.Redirect.INHERIT);
+            // Route first command's input from terminal
+            builders.get(0).redirectInput(ProcessBuilder.Redirect.INHERIT);
+
+            List<Process> processes = ProcessBuilder.startPipeline(builders);
+            
+            // Wait for the final command in the chain to finish
+            processes.get(processes.size() - 1).waitFor();
+        } catch (Exception e) {
+            System.out.println("Pipeline execution failed.");
+        }
+    }
+
     private static void printWithMarkers(List<BackgroundJob> list) {
         int mostRecentRunningIdx = -1;
         int secondMostRecentRunningIdx = -1;
 
-        // Trace remaining active jobs backwards
         for (int i = list.size() - 1; i >= 0; i--) {
             if (list.get(i).status.equals("Running")) {
                 if (mostRecentRunningIdx == -1) {
@@ -180,7 +221,6 @@ public class Main {
                 if (i == mostRecentRunningIdx) marker = "+";
                 else if (i == secondMostRecentRunningIdx) marker = "-";
             } else if (job.status.equals("Done")) {
-                // Done jobs inherit the context pointers relative to chronological layout
                 if (i == list.size() - 1 || mostRecentRunningIdx == -1) marker = "+";
                 else if (i == list.size() - 2) marker = "-";
             }
@@ -190,7 +230,6 @@ public class Main {
     }
 
     private static void reapCompletedJobs() {
-        // Find markers prior to mutation
         int mostRecentRunningIdx = -1;
         int secondMostRecentRunningIdx = -1;
 
