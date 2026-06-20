@@ -70,7 +70,6 @@ public class Main {
         }
     }
 
-    // Custom robust argument parser that handles single quotes, double quotes, and backslashes correctly
     private static List<String> parseArguments(String input) {
         List<String> args = new ArrayList<>();
         StringBuilder currentArg = new StringBuilder();
@@ -161,18 +160,23 @@ public class Main {
             return;
         }
 
-        // Parse arguments accurately through our custom tokenizer
         List<String> parsedArgs = parseArguments(cleanCommand);
         if (parsedArgs.isEmpty()) return;
 
         String command = parsedArgs.get(0);
 
-        // Always run builtins natively using our un-quoted clean argument parser lists
+        // Native Builtin Interception
         if (isBuiltin(command) && !cleanCommand.contains("|") && !cleanCommand.contains(">") && !cleanCommand.contains("<")) {
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             String[] argsArray = parsedArgs.toArray(new String[0]);
             executeBuiltin(command, argsArray, new ByteArrayInputStream(new byte[0]), out);
             System.out.print(out.toString(StandardCharsets.UTF_8));
+            return;
+        }
+
+        // Validate command existence to prevent /bin/sh leaking alternative error formats
+        if (!isBuiltin(command) && getCommandPath(command) == null && !command.contains("/") && !cleanCommand.contains("|")) {
+            System.out.println(command + ": command not found");
             return;
         }
 
@@ -197,7 +201,7 @@ public class Main {
                 process.waitFor();
             }
         } catch (Exception e) {
-            System.out.println(cleanCommand + ": command not found");
+            System.out.println(command + ": command not found");
         }
     }
 
