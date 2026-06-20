@@ -8,11 +8,13 @@ public class Main {
     // Class to track background jobs
     static class BackgroundJob {
         int id;
+        long pid;
         String command;
         String status;
 
-        BackgroundJob(int id, String command, String status) {
+        BackgroundJob(int id, long pid, String command, String status) {
             this.id = id;
+            this.pid = pid;
             this.command = command;
             this.status = status;
         }
@@ -71,11 +73,19 @@ public class Main {
                     // Redirect streams to avoid blocking and run asynchronously
                     pb.redirectOutput(ProcessBuilder.Redirect.DISCARD);
                     pb.redirectError(ProcessBuilder.Redirect.DISCARD);
-                    pb.start(); // Start without calling .waitFor()
+                    Process process = pb.start(); // Start without calling .waitFor()
+
+                    int jobId = backgroundJobs.size() + 1;
+                    long pid = process.pid();
+
+                    // CRITICAL FIX: Print "[1] <PID>" right away when launched
+                    System.out.printf("[%d] %d\n", jobId, pid);
+                    System.out.flush();
 
                     // Save the job metadata using the original string line
                     backgroundJobs.add(new BackgroundJob(
-                        backgroundJobs.size() + 1,
+                        jobId,
+                        pid,
                         commandLine,
                         "Running"
                     ));
