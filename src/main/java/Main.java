@@ -13,16 +13,15 @@ public class Main {
     private static class BackgroundJob {
         int jobId;
         Process process;
-        String command;
+        String commandClean; // Main command text without trailing &
 
-        BackgroundJob(int jobId, Process process, String command) {
+        BackgroundJob(int jobId, Process process, String commandClean) {
             this.jobId = jobId;
             this.process = process;
-            this.command = command;
+            this.commandClean = commandClean;
         }
     }
 
-    // Keep activeJobs ordered by insertion (most recent at the end)
     private static final List<BackgroundJob> activeJobs = new ArrayList<>();
 
     public static void main(String[] args) throws Exception {
@@ -48,7 +47,8 @@ public class Main {
         while (iterator.hasNext()) {
             BackgroundJob job = iterator.next();
             if (!job.process.isAlive()) {
-                System.out.println("[" + job.jobId + "]+  Done                 " + job.command);
+                // Done notification MUST NOT include trailing '&'
+                System.out.println("[" + job.jobId + "]+  Done                 " + job.commandClean);
                 iterator.remove();
             }
         }
@@ -73,20 +73,19 @@ public class Main {
 
     private static void executePipeline(String input) {
         boolean isBackground = false;
-        String originalCommand = input; 
         
         if (input.endsWith("&")) {
             isBackground = true;
             input = input.substring(0, input.length() - 1).trim();
-            originalCommand = input + " &"; // Match the exact trailing format with &
         }
+        
+        String cleanCommand = input; // Saved command without trailing &
 
-        if (input.equals("jobs")) {
+        if (cleanCommand.equals("jobs")) {
             int size = activeJobs.size();
             for (int i = 0; i < size; i++) {
                 BackgroundJob job = activeJobs.get(i);
                 
-                // Determine '+' or '-' suffix marker based on recency
                 String marker = " ";
                 if (i == size - 1) {
                     marker = "+";
@@ -94,14 +93,14 @@ public class Main {
                     marker = "-";
                 }
                 
-                // Constructing the exact spacing format expected by CodeCrafters tester
-                System.out.printf("[%d]%s  Running                 %s\n", job.jobId, marker, job.command);
+                // The 'jobs' list output MUST explicitly show the trailing ' &'
+                System.out.printf("[%d]%s  Running                 %s &\n", job.jobId, marker, job.commandClean);
             }
             return;
         }
 
-        if (!input.contains("|")) {
-            String[] args = input.split("\\s+");
+        if (!cleanCommand.contains("|")) {
+            String[] args = cleanCommand.split("\\s+");
             if (args.length > 0 && isBuiltin(args[0])) {
                 stripQuotes(args);
                 ByteArrayOutputStream out = new ByteArrayOutputStream();
@@ -112,7 +111,7 @@ public class Main {
         }
 
         try {
-            ProcessBuilder pb = new ProcessBuilder("/bin/sh", "-c", input);
+            ProcessBuilder pb = new ProcessBuilder("/bin/sh", "-c", cleanCommand);
             pb.environment().put("PATH", System.getenv("PATH"));
             
             Process process = pb.start();
@@ -121,7 +120,7 @@ public class Main {
                 int jobId = getNextAvailableJobId();
                 System.out.println("[" + jobId + "] " + process.pid());
                 
-                activeJobs.add(new BackgroundJob(jobId, process, originalCommand));
+                activeJobs.add(new BackgroundJob(jobId, process, cleanCommand));
                 
                 process.getInputStream().close();
                 process.getErrorStream().close();
@@ -131,7 +130,7 @@ public class Main {
                 process.waitFor();
             }
         } catch (Exception e) {
-            System.out.println(input + ": command not found");
+            System.out.println(cleanCommand + ": command not found");
         }
     }
 
