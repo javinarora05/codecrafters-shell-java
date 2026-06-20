@@ -6,7 +6,7 @@ import java.util.Scanner;
 
 public class Main {
     public static void main(String[] args) throws Exception {
-        Scanner scanner = new Scanner(System.in);
+        Scanner scanner = new Scanner(System.util.in);
         
         while (true) {
             System.out.print("$ ");
@@ -20,17 +20,59 @@ public class Main {
                 break;
             }
             
-            // Basic tokenization (splits by spaces)
-            // Note: If you have custom quoting logic from previous stages,
-            // make sure to use your tokenization here instead.
-            String[] rawTokens = input.split("\\s+");
-            List<String> tokens = new ArrayList<>();
-            for (String t : rawTokens) {
-                tokens.add(t);
+            // Advanced command parsing supporting single/double quotes and backslashes
+            List<String> tokens = parseArguments(input);
+            
+            if (tokens.isEmpty()) {
+                continue;
             }
             
             executeCommand(tokens);
         }
+    }
+
+    private static List<String> parseArguments(String input) {
+        List<String> tokens = new ArrayList<>();
+        StringBuilder currentToken = new StringBuilder();
+        boolean inSingleQuotes = false;
+        boolean inDoubleQuotes = false;
+        boolean escaped = false;
+
+        for (int i = 0; i < input.length(); i++) {
+            char c = input.charAt(i);
+
+            if (escaped) {
+                currentToken.append(c);
+                escaped = false;
+            } else if (c == '\\' && !inSingleQuotes) {
+                if (inDoubleQuotes) {
+                    // Inside double quotes, backslash only escapes specific characters
+                    if (i + 1 < input.length() && (input.charAt(i + 1) == '$' || input.charAt(i + 1) == '`' || 
+                        input.charAt(i + 1) == '"' || input.charAt(i + 1) == '\\' || input.charAt(i + 1) == '\n')) {
+                        escaped = true;
+                    } else {
+                        currentToken.append(c);
+                    }
+                } else {
+                    escaped = true;
+                }
+            } else if (c == '\'' && !inDoubleQuotes) {
+                inSingleQuotes = !inSingleQuotes;
+            } else if (c == '"' && !inSingleQuotes) {
+                inDoubleQuotes = !inDoubleQuotes;
+            } else if (Character.isWhitespace(c) && !inSingleQuotes && !inDoubleQuotes) {
+                if (currentToken.length() > 0) {
+                    tokens.add(currentToken.toString());
+                    currentToken.setLength(0);
+                }
+            } else {
+                currentToken.append(c);
+            }
+        }
+        if (currentToken.length() > 0) {
+            tokens.add(currentToken.toString());
+        }
+        return tokens;
     }
 
     private static void executeCommand(List<String> tokens) {
@@ -43,12 +85,12 @@ public class Main {
             if (tokens.get(i).equals(">") || tokens.get(i).equals("1>")) {
                 if (i + 1 < tokens.size()) {
                     stdoutRedirectFile = tokens.get(i + 1);
-                    i++; // Skip the filename token
+                    i++; 
                 }
             } else if (tokens.get(i).equals("2>")) {
                 if (i + 1 < tokens.size()) {
                     stderrRedirectFile = tokens.get(i + 1);
-                    i++; // Skip the filename token
+                    i++; 
                 }
             } else {
                 commandArgs.add(tokens.get(i));
