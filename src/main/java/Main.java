@@ -30,7 +30,6 @@ public class Main {
         List<String> builtins = Arrays.asList("exit", "echo", "type", "pwd", "cd", "jobs");
 
         while (true) {
-            // Reap and print finished jobs right before presenting the prompt
             reapCompletedJobs();
 
             System.out.print("$ ");
@@ -155,12 +154,11 @@ public class Main {
         }
     }
 
-    // FIXED: Correctly allocates markers (+/-) based on historic execution order
+    // FIX FOR BV8: Group and print "Done" tasks first, followed by "Running" tasks
     private static void printWithMarkers(List<BackgroundJob> list) {
         int mostRecentIdx = -1;
         int secondMostRecentIdx = -1;
 
-        // Scan backwards to find the top two jobs regardless of whether they are Running or recently Done
         for (int i = list.size() - 1; i >= 0; i--) {
             if (mostRecentIdx == -1) {
                 mostRecentIdx = i;
@@ -170,17 +168,26 @@ public class Main {
             }
         }
 
+        // 1. Print all "Done" jobs first
         for (int i = 0; i < list.size(); i++) {
             BackgroundJob job = list.get(i);
-            String marker = " ";
-            
-            if (i == mostRecentIdx) {
-                marker = "+";
-            } else if (i == secondMostRecentIdx) {
-                marker = "-";
+            if (job.status.equals("Done")) {
+                String marker = " ";
+                if (i == mostRecentIdx) marker = "+";
+                else if (i == secondMostRecentIdx) marker = "-";
+                System.out.printf("[%d]%s  %-24s%s\n", job.id, marker, job.status, job.command);
             }
+        }
 
-            System.out.printf("[%d]%s  %-24s%s\n", job.id, marker, job.status, job.command);
+        // 2. Print remaining "Running" jobs
+        for (int i = 0; i < list.size(); i++) {
+            BackgroundJob job = list.get(i);
+            if (job.status.equals("Running")) {
+                String marker = " ";
+                if (i == mostRecentIdx) marker = "+";
+                else if (i == secondMostRecentIdx) marker = "-";
+                System.out.printf("[%d]%s  %-24s%s\n", job.id, marker, job.status, job.command);
+            }
         }
     }
 
