@@ -2,6 +2,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Scanner;
 
@@ -24,7 +25,7 @@ public class Main {
     private static void executePipeline(String input) {
         String[] pipeStages = input.split("\\|");
         
-        // This will hold the output of the previous stage to feed as input into the next stage
+        // This will hold the output of the previous stage
         InputStream currentIn = new ByteArrayInputStream(new byte[0]);
 
         for (int i = 0; i < pipeStages.length; i++) {
@@ -41,21 +42,16 @@ public class Main {
 
             String command = args[0];
             boolean isLastStage = (i == pipeStages.length - 1);
-
-            // Capture the output of this stage
             ByteArrayOutputStream stageOut = new ByteArrayOutputStream();
 
             if (isBuiltin(command)) {
-                // Execute Builtin inside the current JVM process
                 executeBuiltin(command, args, currentIn, stageOut);
-                
                 if (isLastStage) {
                     System.out.print(stageOut.toString(StandardCharsets.UTF_8));
                 } else {
                     currentIn = new ByteArrayInputStream(stageOut.toByteArray());
                 }
             } else {
-                // Execute External Command (ls, grep, wc, etc.)
                 try {
                     String cmdPath = getCommandPath(command);
                     if (cmdPath != null) {
@@ -65,27 +61,44 @@ public class Main {
                     ProcessBuilder pb = new ProcessBuilder(args);
                     Process process = pb.start();
 
-                    // Feed previous stage's output into this process's stdin
+                    // Concurrently pump the input data into the process stdin
                     final InputStream fIn = currentIn;
-                    Thread pumpThread = new Thread(() -> {
+                    OutputStream pOut = process.getOutputStream();
+                    Thread inputPump = new Thread(() -> {
                         try {
-                            fIn.transferTo(process.getOutputStream());
-                            process.getOutputStream().close();
+                            fIn.transferTo(pOut);
+                            pOut.close();
                         } catch (Exception ignored) {}
                     });
-                    pumpThread.start();
+                    inputPump.start();
 
                     if (isLastStage) {
-                        // Last stage prints directly to shell stdout/stderr
-                        process.getInputStream().transferTo(System.out);
+                        // Actively stream process stdout to system console out
+                        InputStream pIn = process.getInputStream();
+                        Thread outputPump = new Thread(() -> {
+                            try {
+                                pIn.transferTo(System.out);
+                            } catch (Exception ignored) {}
+                        });
+                        outputPump.start();
+
                         process.getErrorStream().transferTo(System.err);
                         process.waitFor();
-                        pumpThread.join();
+                        inputPump.join();
+                        outputPump.join();
                     } else {
-                        // Intermediate stage captures output for the next command
-                        process.getInputStream().transferTo(stageOut);
+                        // Intermediate stages: capture output concurrently
+                        InputStream pIn = process.getInputStream();
+                        Thread outputPump = new Thread(() -> {
+                            try {
+                                pIn.transferTo(stageOut);
+                            } catch (Exception ignored) {}
+                        });
+                        outputPump.start();
+
                         process.waitFor();
-                        pumpThread.join();
+                        inputPump.join();
+                        outputPump.join();
                         currentIn = new ByteArrayInputStream(stageOut.toByteArray());
                     }
                 } catch (Exception e) {
