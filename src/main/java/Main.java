@@ -70,6 +70,62 @@ public class Main {
         }
     }
 
+    // Custom robust argument parser that handles single quotes, double quotes, and backslashes correctly
+    private static List<String> parseArguments(String input) {
+        List<String> args = new ArrayList<>();
+        StringBuilder currentArg = new StringBuilder();
+        boolean inSingleQuotes = false;
+        boolean inDoubleQuotes = false;
+
+        for (int i = 0; i < input.length(); i++) {
+            char c = input.charAt(i);
+
+            if (inSingleQuotes) {
+                if (c == '\'') {
+                    inSingleQuotes = false;
+                } else {
+                    currentArg.append(c);
+                }
+            } else if (inDoubleQuotes) {
+                if (c == '"') {
+                    inDoubleQuotes = false;
+                } else if (c == '\\' && i + 1 < input.length()) {
+                    char next = input.charAt(i + 1);
+                    if (next == '$' || next == '`' || next == '"' || next == '\\' || next == '\n') {
+                        currentArg.append(next);
+                        i++;
+                    } else {
+                        currentArg.append(c);
+                    }
+                } else {
+                    currentArg.append(c);
+                }
+            } else {
+                if (Character.isWhitespace(c)) {
+                    if (currentArg.length() > 0) {
+                        args.add(currentArg.toString());
+                        currentArg.setLength(0);
+                    }
+                } else if (c == '\'') {
+                    inSingleQuotes = true;
+                } else if (c == '"') {
+                    inDoubleQuotes = true;
+                } else if (c == '\\' && i + 1 < input.length()) {
+                    currentArg.append(input.charAt(i + 1));
+                    i++;
+                } else {
+                    currentArg.append(c);
+                }
+            }
+        }
+
+        if (currentArg.length() > 0) {
+            args.add(currentArg.toString());
+        }
+
+        return args;
+    }
+
     private static void executePipeline(String input) {
         boolean isBackground = false;
         
@@ -105,16 +161,19 @@ public class Main {
             return;
         }
 
-        // Only run builtins natively if they DO NOT contain pipelines or redirection symbols (<, >)
-        if (!cleanCommand.contains("|") && !cleanCommand.contains(">") && !cleanCommand.contains("<")) {
-            String[] args = cleanCommand.split("\\s+");
-            if (args.length > 0 && isBuiltin(args[0])) {
-                stripQuotes(args);
-                ByteArrayOutputStream out = new ByteArrayOutputStream();
-                executeBuiltin(args[0], args, new ByteArrayInputStream(new byte[0]), out);
-                System.out.print(out.toString(StandardCharsets.UTF_8));
-                return;
-            }
+        // Parse arguments accurately through our custom tokenizer
+        List<String> parsedArgs = parseArguments(cleanCommand);
+        if (parsedArgs.isEmpty()) return;
+
+        String command = parsedArgs.get(0);
+
+        // Always run builtins natively using our un-quoted clean argument parser lists
+        if (isBuiltin(command) && !cleanCommand.contains("|") && !cleanCommand.contains(">") && !cleanCommand.contains("<")) {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            String[] argsArray = parsedArgs.toArray(new String[0]);
+            executeBuiltin(command, argsArray, new ByteArrayInputStream(new byte[0]), out);
+            System.out.print(out.toString(StandardCharsets.UTF_8));
+            return;
         }
 
         try {
@@ -144,14 +203,6 @@ public class Main {
 
     private static boolean isBuiltin(String cmd) {
         return cmd.equals("echo") || cmd.equals("exit") || cmd.equals("type") || cmd.equals("pwd") || cmd.equals("jobs");
-    }
-
-    private static void stripQuotes(String[] args) {
-        for (int j = 0; j < args.length; j++) {
-            if (args[j].startsWith("\"") && args[j].endsWith("\"") && args[j].length() >= 2) {
-                args[j] = args[j].substring(1, args[j].length() - 1);
-            }
-        }
     }
 
     private static void executeBuiltin(String cmd, String[] args, InputStream in, ByteArrayOutputStream out) {
