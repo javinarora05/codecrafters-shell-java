@@ -52,6 +52,13 @@ public class Main {
                 continue;
             }
 
+            // FIX FOR FY4: Extract background flag safely prior to conditional branch handling
+            boolean isBackground = false;
+            if (tokenList.get(tokenList.size() - 1).equals("&")) {
+                isBackground = true;
+                tokenList.remove(tokenList.size() - 1);
+            }
+
             if (tokenList.contains("|")) {
                 handlePipeline(tokenList);
                 continue;
@@ -81,9 +88,40 @@ public class Main {
             try {
                 ProcessBuilder pb = new ProcessBuilder();
                 pb.command(tokens);
-                pb.inheritIO();
-                Process process = pb.start();
-                process.waitFor();
+
+                if (isBackground) {
+                    // Must inherit IO channels safely or avoid standard blocking traps
+                    pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
+                    pb.redirectError(ProcessBuilder.Redirect.INHERIT);
+                    Process process = pb.start();
+
+                    // Recycle logic / get lowest available Job ID
+                    int jobId = 1;
+                    while (true) {
+                        boolean used = false;
+                        for (BackgroundJob job : backgroundJobs) {
+                            if (job.id == jobId) {
+                                used = true;
+                                break;
+                            }
+                        }
+                        if (!used) break;
+                        jobId++;
+                    }
+
+                    long pid = process.pid();
+                    System.out.printf("[%d] %d\n", jobId, pid);
+                    System.out.flush();
+
+                    backgroundJobs.add(new BackgroundJob(jobId, pid, commandLine, "Running", process));
+                    
+                    previousJobId = currentJobId;
+                    currentJobId = jobId;
+                } else {
+                    pb.inheritIO();
+                    Process process = pb.start();
+                    process.waitFor();
+                }
             } catch (Exception e) {
                 System.out.printf("%s: command not found\n", tokens[0]);
                 System.out.flush();
@@ -114,7 +152,6 @@ public class Main {
         System.out.flush();
     }
 
-    // FIX FOR NY9: Fully supports builtins on either side of the pipeline operator
     private static void handlePipeline(List<String> tokens) {
         List<List<String>> commands = new ArrayList<>();
         List<String> currentCmd = new ArrayList<>();
@@ -133,7 +170,6 @@ public class Main {
             List<String> leftCmd = commands.get(0);
             List<String> rightCmd = commands.get(1);
 
-            // Case 1: Builtin on the LEFT (e.g., echo strawberry | wc)
             if (BUILTINS.contains(leftCmd.get(0))) {
                 try {
                     ProcessBuilder pb = new ProcessBuilder(rightCmd);
@@ -169,23 +205,16 @@ public class Main {
                 return;
             }
 
-            // Case 2: Builtin on the RIGHT (e.g., ls | type exit)
             if (BUILTINS.contains(rightCmd.get(0))) {
                 try {
                     ProcessBuilder pb = new ProcessBuilder(leftCmd);
-                    // Intercept left process output via pipe streams
                     Process leftProcess = pb.start();
 
-                    // Even though the builtin doesn't require the piped stdin to resolve 'type exit',
-                    // we must consume it or let the process finish cleanly so resources aren't blocked.
                     try (BufferedReader br = new BufferedReader(new InputStreamReader(leftProcess.getInputStream()))) {
-                        while (br.readLine() != null) {
-                            // Intentionally consuming left side output
-                        }
+                        while (br.readLine() != null) {}
                     }
                     leftProcess.waitFor();
 
-                    // Execute the right side builtin directly in our JVM container
                     if (rightCmd.get(0).equals("type") && rightCmd.size() > 1) {
                         handleTypeBuiltin(rightCmd.get(1));
                     } else if (rightCmd.get(0).equals("echo")) {
@@ -198,7 +227,6 @@ public class Main {
             }
         }
 
-        // Fallback: Pipeline between pure external binaries
         try {
             List<ProcessBuilder> builders = new ArrayList<>();
             for (List<String> cmd : commands) {
