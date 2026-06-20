@@ -10,7 +10,6 @@ import java.util.Scanner;
 
 public class Main {
     
-    // Track background jobs
     private static class BackgroundJob {
         int jobId;
         Process process;
@@ -23,13 +22,13 @@ public class Main {
         }
     }
 
+    // Keep activeJobs ordered by insertion (most recent at the end)
     private static final List<BackgroundJob> activeJobs = new ArrayList<>();
 
     public static void main(String[] args) throws Exception {
         Scanner scanner = new Scanner(System.in);
 
         while (true) {
-            // Check and report on any background jobs that finished before showing the prompt
             checkCompletedJobs();
 
             System.out.print("$ ");
@@ -55,7 +54,6 @@ public class Main {
         }
     }
 
-    // Dynamically calculate the smallest available Job ID starting from 1
     private static int getNextAvailableJobId() {
         int candidate = 1;
         while (true) {
@@ -80,13 +78,24 @@ public class Main {
         if (input.endsWith("&")) {
             isBackground = true;
             input = input.substring(0, input.length() - 1).trim();
-            originalCommand = input; 
+            originalCommand = input + " &"; // Match the exact trailing format with &
         }
 
-        // Handle 'jobs' builtin natively if requested
         if (input.equals("jobs")) {
-            for (BackgroundJob job : activeJobs) {
-                System.out.println("[" + job.jobId + "]+  Running              " + job.command + " &");
+            int size = activeJobs.size();
+            for (int i = 0; i < size; i++) {
+                BackgroundJob job = activeJobs.get(i);
+                
+                // Determine '+' or '-' suffix marker based on recency
+                String marker = " ";
+                if (i == size - 1) {
+                    marker = "+";
+                } else if (i == size - 2) {
+                    marker = "-";
+                }
+                
+                // Constructing the exact spacing format expected by CodeCrafters tester
+                System.out.printf("[%d]%s  Running                 %s\n", job.jobId, marker, job.command);
             }
             return;
         }
@@ -109,7 +118,6 @@ public class Main {
             Process process = pb.start();
 
             if (isBackground) {
-                // Find and allocate the recycled lowest job ID
                 int jobId = getNextAvailableJobId();
                 System.out.println("[" + jobId + "] " + process.pid());
                 
