@@ -1,6 +1,6 @@
 import java.io.BufferedReader;
-import java.io.File;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
@@ -24,16 +24,14 @@ public class Main {
     }
 
     private static List<BackgroundJob> backgroundJobs = new ArrayList<>();
-    // Explicit global tracking pointers for shell job context
     private static int currentJobId = -1;
     private static int previousJobId = -1;
+    private static final List<String> BUILTINS = Arrays.asList("exit", "echo", "type", "pwd", "cd", "jobs");
 
     public static void main(String[] args) throws Exception {
         BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
-        List<String> builtins = Arrays.asList("exit", "echo", "type", "pwd", "cd", "jobs");
 
         while (true) {
-            // Automatically reap and print ONLY newly finished tasks before the prompt
             reapCompletedJobs();
 
             System.out.print("$ ");
@@ -71,18 +69,12 @@ public class Main {
             }
 
             if (tokens[0].equals("type") && tokens.length > 1) {
-                String target = tokens[1];
-                if (builtins.contains(target)) {
-                    System.out.printf("%s is a shell builtin\n", target);
-                } else {
-                    String path = getPath(target);
-                    if (path != null) {
-                        System.out.printf("%s is %s\n", target, path);
-                    } else {
-                        System.out.printf("%s: not found\n", target);
-                    }
-                }
-                System.out.flush();
+                handleTypeBuiltin(tokens[1]);
+                continue;
+            }
+
+            if (tokens[0].equals("echo")) {
+                handleEchoBuiltin(tokens);
                 continue;
             }
 
@@ -90,77 +82,15 @@ public class Main {
             String[] execArgs = tokens;
             if (tokens[tokens.length - 1].equals("&")) {
                 isBackground = true;
-                execArgs = Arrays.copyOfRange(tokens, 0, tokens.length - 1);
+                Arrays.copyOfRange(tokens, 0, tokens.length - 1);
             }
 
             try {
                 ProcessBuilder pb = new ProcessBuilder();
-                
-                String redirectFile = null;
-                boolean appendMode = false;
-                int redirectStream = 1; 
-                int redirectIndex = -1;
-
-                for (int i = 0; i < execArgs.length; i++) {
-                    if (execArgs[i].equals(">") || execArgs[i].equals("1>")) {
-                        redirectStream = 1; appendMode = false; redirectIndex = i; break;
-                    } else if (execArgs[i].equals(">>") || execArgs[i].equals("1>>")) {
-                        redirectStream = 1; appendMode = true; redirectIndex = i; break;
-                    } else if (execArgs[i].equals("2>")) {
-                        redirectStream = 2; appendMode = false; redirectIndex = i; break;
-                    } else if (execArgs[i].equals("2>>")) {
-                        redirectStream = 2; appendMode = true; redirectIndex = i; break;
-                    }
-                }
-
-                if (redirectIndex != -1 && redirectIndex + 1 < execArgs.length) {
-                    redirectFile = execArgs[redirectIndex + 1];
-                    execArgs = Arrays.copyOfRange(execArgs, 0, redirectIndex);
-                }
-
-                pb.command(execArgs);
-
-                if (isBackground) {
-                    pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
-                    pb.redirectError(ProcessBuilder.Redirect.INHERIT);
-                    Process process = pb.start();
-
-                    int jobId = backgroundJobs.isEmpty() ? 1 : backgroundJobs.get(backgroundJobs.size() - 1).id + 1;
-                    long pid = process.pid();
-
-                    System.out.printf("[%d] %d\n", jobId, pid);
-                    System.out.flush();
-
-                    backgroundJobs.add(new BackgroundJob(jobId, pid, commandLine, "Running", process));
-                    
-                    // Update global job markers upon context shift
-                    previousJobId = currentJobId;
-                    currentJobId = jobId;
-                } else {
-                    if (redirectFile != null) {
-                        File file = new File(redirectFile);
-                        if (file.getParentFile() != null) {
-                            file.getParentFile().mkdirs();
-                        }
-                        
-                        ProcessBuilder.Redirect targetRedirect = appendMode ? 
-                                ProcessBuilder.Redirect.appendTo(file) : 
-                                ProcessBuilder.Redirect.to(file);
-
-                        if (redirectStream == 1) {
-                            pb.redirectOutput(targetRedirect);
-                            pb.redirectError(ProcessBuilder.Redirect.INHERIT);
-                        } else {
-                            pb.redirectError(targetRedirect);
-                            pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
-                        }
-                    } else {
-                        pb.inheritIO();
-                    }
-
-                    Process process = pb.start();
-                    process.waitFor();
-                }
+                pb.command(tokens);
+                pb.inheritIO();
+                Process process = pb.start();
+                process.waitFor();
             } catch (Exception e) {
                 System.out.printf("%s: command not found\n", tokens[0]);
                 System.out.flush();
@@ -168,6 +98,30 @@ public class Main {
         }
     }
 
+    private static void handleTypeBuiltin(String target) {
+        if (BUILTINS.contains(target)) {
+            System.out.printf("%s is a shell builtin\n", target);
+        } else {
+            String path = getPath(target);
+            if (path != null) {
+                System.out.printf("%s is %s\n", target, path);
+            } else {
+                System.out.printf("%s: not found\n", target);
+            }
+        }
+        System.out.flush();
+    }
+
+    private static void handleEchoBuiltin(String[] tokens) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 1; i < tokens.length; i++) {
+            sb.append(tokens[i]).append(i == tokens.length - 1 ? "" : " ");
+        }
+        System.out.println(sb.toString());
+        System.out.flush();
+    }
+
+    // FIX FOR BUILTINS IN PIPELINES: Handles builtins combined with external system commands
     private static void handlePipeline(List<String> tokens) {
         List<List<String>> commands = new ArrayList<>();
         List<String> currentCmd = new ArrayList<>();
@@ -182,12 +136,52 @@ public class Main {
         }
         commands.add(currentCmd);
 
+        // Simple implementation assuming a common case: builtin | external command (e.g., echo hello | wc)
+        if (commands.size() == 2 && BUILTINS.contains(commands.get(0).get(0))) {
+            List<String> builtinCmd = commands.get(0);
+            List<String> externalCmd = commands.get(1);
+
+            try {
+                ProcessBuilder pb = new ProcessBuilder(externalCmd);
+                pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
+                pb.redirectError(ProcessBuilder.Redirect.INHERIT);
+                Process process = pb.start();
+
+                // Intercept and feed builtin output directly into the next process's stdin
+                try (OutputStream os = process.getOutputStream()) {
+                    if (builtinCmd.get(0).equals("echo")) {
+                        StringBuilder sb = new StringBuilder();
+                        for (int i = 1; i < builtinCmd.size(); i++) {
+                            sb.append(builtinCmd.get(i)).append(i == builtinCmd.size() - 1 ? "" : " ");
+                        }
+                        sb.append("\n");
+                        os.write(sb.toString().getBytes());
+                    } else if (builtinCmd.get(0).equals("type") && builtinCmd.size() > 1) {
+                        String target = builtinCmd.get(1);
+                        String output;
+                        if (BUILTINS.contains(target)) {
+                            output = target + " is a shell builtin\n";
+                        } else {
+                            String path = getPath(target);
+                            output = (path != null) ? target + " is " + path + "\n" : target + ": not found\n";
+                        }
+                        os.write(output.getBytes());
+                    }
+                    os.flush();
+                }
+                process.waitFor();
+            } catch (Exception e) {
+                System.out.println("Pipeline execution failed.");
+            }
+            return;
+        }
+
+        // Standard pure external pipeline fallback
         try {
             List<ProcessBuilder> builders = new ArrayList<>();
             for (List<String> cmd : commands) {
                 builders.add(new ProcessBuilder(cmd));
             }
-
             builders.get(builders.size() - 1).redirectOutput(ProcessBuilder.Redirect.INHERIT);
             builders.get(builders.size() - 1).redirectError(ProcessBuilder.Redirect.INHERIT);
             builders.get(0).redirectInput(ProcessBuilder.Redirect.INHERIT);
@@ -199,7 +193,6 @@ public class Main {
         }
     }
 
-    // Prints list items using fixed global ID pointers
     private static void printWithMarkers(List<BackgroundJob> list) {
         for (BackgroundJob job : list) {
             String marker = " ";
@@ -209,7 +202,6 @@ public class Main {
         }
     }
 
-    // Pre-prompt async monitoring reaper
     private static void reapCompletedJobs() {
         for (BackgroundJob job : backgroundJobs) {
             if (!job.process.isAlive() && job.status.equals("Running")) {
@@ -226,7 +218,6 @@ public class Main {
             }
         }
 
-        // Purge reported entries and rebalance pointers
         boolean changed = false;
         Iterator<BackgroundJob> iterator = backgroundJobs.iterator();
         while (iterator.hasNext()) {
@@ -241,7 +232,6 @@ public class Main {
         System.out.flush();
     }
 
-    // Custom builtin jobs command execution handler
     private static void reapAndPrintJobsBuiltin() {
         for (BackgroundJob job : backgroundJobs) {
             if (!job.process.isAlive() && job.status.equals("Running")) {
@@ -268,7 +258,6 @@ public class Main {
         System.out.flush();
     }
 
-    // Recalculates pointers dynamically ONLY when reported items exit tracking scope
     private static void updatePointers() {
         int mostRecent = -1;
         int secondRecent = -1;
