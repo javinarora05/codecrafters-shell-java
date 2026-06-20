@@ -2,14 +2,44 @@ import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Scanner;
 
-public class ShellCommandExecutor {
+public class Main {
+    public static void main(String[] args) throws Exception {
+        Scanner scanner = new Scanner(System.in);
+        
+        while (true) {
+            System.out.print("$ ");
+            String input = scanner.nextLine().trim();
+            
+            if (input.isEmpty()) {
+                continue;
+            }
+            
+            if (input.equals("exit 0")) {
+                break;
+            }
+            
+            // Basic tokenization (splits by spaces)
+            // Note: If you have advanced quoting logic from previous stages, 
+            // use your existing tokenization mechanism here instead.
+            String[] rawTokens = input.split("\\s+");
+            List<String> tokens = new ArrayList<>();
+            for (String t : rawTokens) {
+                tokens.add(t);
+            }
+            
+            // Handle built-ins like 'echo', 'type', 'pwd', 'cd' here if needed,
+            // or pass directly to external command handler:
+            executeCommand(tokens);
+        }
+    }
 
-    public static void executeCommand(List<String> tokens) {
+    private static void executeCommand(List<String> tokens) {
         String errorRedirectFile = null;
         List<String> commandArgs = new ArrayList<>();
 
-        // Parse tokens to look for '2>'
+        // Parse tokens to look for the '2>' operator
         for (int i = 0; i < tokens.size(); i++) {
             if (tokens.get(i).equals("2>")) {
                 if (i + 1 < tokens.size()) {
@@ -28,21 +58,21 @@ public class ShellCommandExecutor {
         try {
             ProcessBuilder pb = new ProcessBuilder(commandArgs);
 
-            // Inherit standard output so it still prints to the terminal
+            // Keep standard output writing to the terminal
             pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
 
             if (errorRedirectFile != null) {
                 File errFile = new File(errorRedirectFile);
                 
-                // Ensure parent directories exist if necessary
+                // Create parent directories if they don't exist (e.g., /tmp/quz/)
                 if (errFile.getParentFile() != null) {
                     errFile.getParentFile().mkdirs();
                 }
                 
-                // Redirect stderr to the file (this overwrites the file, matching '>')
+                // Redirect standard error stream to the specified file
                 pb.redirectError(ProcessBuilder.Redirect.to(errFile));
             } else {
-                // Default behavior: inherit stderr to terminal if not redirected
+                // If '2>' isn't provided, standard error prints to the terminal normally
                 pb.redirectError(ProcessBuilder.Redirect.INHERIT);
             }
 
@@ -50,7 +80,7 @@ public class ShellCommandExecutor {
             process.waitFor();
 
         } catch (IOException | InterruptedException e) {
-            System.err.println(commandArgs.get(0) +": command not found");
+            System.out.println(commandArgs.get(0) + ": command not found");
         }
     }
 }
