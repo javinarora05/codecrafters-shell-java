@@ -105,7 +105,8 @@ public class Main {
             return;
         }
 
-        if (!cleanCommand.contains("|")) {
+        // Only run builtins natively if they DO NOT contain pipelines or redirection symbols (<, >)
+        if (!cleanCommand.contains("|") && !cleanCommand.contains(">") && !cleanCommand.contains("<")) {
             String[] args = cleanCommand.split("\\s+");
             if (args.length > 0 && isBuiltin(args[0])) {
                 stripQuotes(args);
