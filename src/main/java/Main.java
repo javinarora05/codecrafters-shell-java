@@ -23,12 +23,16 @@ public class Main {
         }
     }
 
+    private static List<BackgroundJob> backgroundJobs = new ArrayList<>();
+
     public static void main(String[] args) throws Exception {
-        List<BackgroundJob> backgroundJobs = new ArrayList<>();
         BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
         List<String> builtins = Arrays.asList("exit", "echo", "type", "pwd", "cd", "jobs");
 
         while (true) {
+            // FIX FOR BV8: Always reap and report any completed jobs right before printing the prompt
+            reapCompletedJobs();
+
             System.out.print("$ ");
             System.out.flush();
 
@@ -52,64 +56,9 @@ public class Main {
                 break;
             }
 
-            // FIXED FOR RQ2: Predictable multi-job marker tracking
+            // Inside 'jobs' builtin: Reap completed processes right before rendering the list
             if (tokens[0].equals("jobs")) {
-                // 1. Update statuses first
-                for (BackgroundJob job : backgroundJobs) {
-                    if (!job.process.isAlive() && job.status.equals("Running")) {
-                        job.status = "Done";
-                        if (job.command.endsWith(" &")) {
-                            job.command = job.command.substring(0, job.command.length() - 2);
-                        }
-                    }
-                }
-
-                // 2. Find indices of the most recent and second-most recent RUNNING jobs
-                int mostRecentRunningIdx = -1;
-                int secondMostRecentRunningIdx = -1;
-                for (int i = backgroundJobs.size() - 1; i >= 0; i--) {
-                    if (backgroundJobs.get(i).status.equals("Running")) {
-                        if (mostRecentRunningIdx == -1) {
-                            mostRecentRunningIdx = i;
-                        } else if (secondMostRecentRunningIdx == -1) {
-                            secondMostRecentRunningIdx = i;
-                            break;
-                        }
-                    }
-                }
-
-                // 3. Print list in strict chronological ascending Job ID order
-                for (int i = 0; i < backgroundJobs.size(); i++) {
-                    BackgroundJob job = backgroundJobs.get(i);
-                    String marker = " ";
-                    
-                    if (job.status.equals("Running")) {
-                        if (i == mostRecentRunningIdx) {
-                            marker = "+";
-                        } else if (i == secondMostRecentRunningIdx) {
-                            marker = "-";
-                        }
-                    } else if (job.status.equals("Done")) {
-                        // Done jobs take the current pointer relative to total tracking window structure
-                        if (i == backgroundJobs.size() - 1) {
-                            marker = "+";
-                        } else if (i == backgroundJobs.size() - 2) {
-                            marker = "-";
-                        }
-                    }
-
-                    System.out.printf("[%d]%s  %-24s%s\n", job.id, marker, job.status, job.command);
-                }
-
-                // 4. Purge 'Done' entries
-                Iterator<BackgroundJob> iterator = backgroundJobs.iterator();
-                while (iterator.hasNext()) {
-                    if (iterator.next().status.equals("Done")) {
-                        iterator.remove();
-                    }
-                }
-
-                System.out.flush();
+                reapAndPrintJobsBuiltin();
                 continue;
             }
 
@@ -205,6 +154,86 @@ public class Main {
                 System.out.flush();
             }
         }
+    }
+
+    // Dynamic marker helper for both runtime paths
+    private static void printWithMarkers(List<BackgroundJob> list) {
+        int mostRecentRunningIdx = -1;
+        int secondMostRecentRunningIdx = -1;
+        for (int i = list.size() - 1; i >= 0; i--) {
+            if (list.get(i).status.equals("Running")) {
+                if (mostRecentRunningIdx == -1) {
+                    mostRecentRunningIdx = i;
+                } else if (secondMostRecentRunningIdx == -1) {
+                    secondMostRecentRunningIdx = i;
+                    break;
+                }
+            }
+        }
+
+        for (int i = 0; i < list.size(); i++) {
+            BackgroundJob job = list.get(i);
+            String marker = " ";
+            
+            if (job.status.equals("Running")) {
+                if (i == mostRecentRunningIdx) marker = "+";
+                else if (i == secondMostRecentRunningIdx) marker = "-";
+            } else if (job.status.equals("Done")) {
+                if (i == list.size() - 1) marker = "+";
+                else if (i == list.size() - 2) marker = "-";
+            }
+
+            System.out.printf("[%d]%s  %-24s%s\n", job.id, marker, job.status, job.command);
+        }
+    }
+
+    // Automatic pre-prompt reaper handler
+    private static void reapCompletedJobs() {
+        boolean hasDoneJobs = false;
+        
+        for (BackgroundJob job : backgroundJobs) {
+            if (!job.process.isAlive() && job.status.equals("Running")) {
+                job.status = "Done";
+                if (job.command.endsWith(" &")) {
+                    job.command = job.command.substring(0, job.command.length() - 2);
+                }
+                hasDoneJobs = true;
+            }
+        }
+
+        if (hasDoneJobs) {
+            printWithMarkers(backgroundJobs);
+            
+            Iterator<BackgroundJob> iterator = backgroundJobs.iterator();
+            while (iterator.hasNext()) {
+                if (iterator.next().status.equals("Done")) {
+                    iterator.remove();
+                }
+            }
+            System.out.flush();
+        }
+    }
+
+    // jobs builtin handler
+    private static void reapAndPrintJobsBuiltin() {
+        for (BackgroundJob job : backgroundJobs) {
+            if (!job.process.isAlive() && job.status.equals("Running")) {
+                job.status = "Done";
+                if (job.command.endsWith(" &")) {
+                    job.command = job.command.substring(0, job.command.length() - 2);
+                }
+            }
+        }
+
+        printWithMarkers(backgroundJobs);
+
+        Iterator<BackgroundJob> iterator = backgroundJobs.iterator();
+        while (iterator.hasNext()) {
+            if (iterator.next().status.equals("Done")) {
+                iterator.remove();
+            }
+        }
+        System.out.flush();
     }
 
     private static List<String> parseCommandLine(String commandLine) {
