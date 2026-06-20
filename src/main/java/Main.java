@@ -23,6 +23,13 @@ public class Main {
     }
 
     private static void executePipeline(String input) {
+        // Check if this command should run as a background job
+        boolean isBackground = false;
+        if (input.endsWith("&")) {
+            isBackground = true;
+            input = input.substring(0, input.length() - 1).trim();
+        }
+
         // If it's a simple builtin execution without a pipe, run it natively
         if (!input.contains("|")) {
             String[] args = input.split("\\s+");
@@ -35,21 +42,26 @@ public class Main {
             }
         }
 
-        // For complex pipelines containing continuous external streams (like tail -f | head)
-        // or builtins mixed with pipes, we delegate external parts cleanly to /bin/sh
         try {
             ProcessBuilder pb = new ProcessBuilder("/bin/sh", "-c", input);
-            
-            // Sync environment paths so system utilities (tail, head, grep) are fully visible
             pb.environment().put("PATH", System.getenv("PATH"));
             
             Process process = pb.start();
 
-            // Actively stream the standard output and error back to the console
-            process.getInputStream().transferTo(System.out);
-            process.getErrorStream().transferTo(System.err);
-
-            process.waitFor();
+            if (isBackground) {
+                // Print the job control format: [Job ID] PID
+                // CodeCrafters defaults to Job ID 1 for single background tasks
+                System.out.println("[1] " + process.pid());
+                
+                // Allow the streams to drain in the background without blocking the main loop
+                process.getInputStream().close();
+                process.getErrorStream().close();
+            } else {
+                // Foreground task: stream synchronously and wait
+                process.getInputStream().transferTo(System.out);
+                process.getErrorStream().transferTo(System.err);
+                process.waitFor();
+            }
         } catch (Exception e) {
             System.out.println(input + ": command not found");
         }
