@@ -5,7 +5,6 @@ import java.util.Arrays;
 import java.util.List;
 
 public class Main {
-    // Class to track background jobs
     static class BackgroundJob {
         int id;
         long pid;
@@ -38,51 +37,45 @@ public class Main {
                 continue;
             }
 
-            // Split command line into arguments by whitespace
             String[] tokens = commandLine.split("\\s+");
 
-            // 1. Handle 'exit' builtin
             if (tokens[0].equals("exit")) {
                 break;
             }
 
-            // 2. Handle 'jobs' builtin (JD6 Requirement)
+            // 1. Handle 'jobs' builtin with the corrected exact spacing
             if (tokens[0].equals("jobs")) {
                 for (BackgroundJob job : backgroundJobs) {
-                    // %-24s pads the status "Running" with spaces to the right to be exactly 24 characters
-                    System.out.printf("[ %d ] +  %-24s%s\n", job.id, job.status, job.command);
+                    // %-24s left-aligns "Running" and pads it to exactly 24 characters total
+                    // Format matches exactly: "[1]+  Running                 sleep 100 &"
+                    System.out.printf("[%d]+  %-24s%s\n", job.id, job.status, job.command);
                 }
                 System.out.flush();
                 continue;
             }
 
-            // 3. Check for background execution indicator '&'
             boolean isBackground = false;
             String[] execArgs = tokens;
             if (tokens[tokens.length - 1].equals("&")) {
                 isBackground = true;
-                // Strip the trailing '&' so ProcessBuilder gets a valid command execution array
                 execArgs = Arrays.copyOfRange(tokens, 0, tokens.length - 1);
             }
 
-            // 4. Execute external commands
             try {
                 ProcessBuilder pb = new ProcessBuilder(execArgs);
                 
                 if (isBackground) {
-                    // Redirect streams to avoid blocking and run asynchronously
                     pb.redirectOutput(ProcessBuilder.Redirect.DISCARD);
                     pb.redirectError(ProcessBuilder.Redirect.DISCARD);
-                    Process process = pb.start(); // Start without calling .waitFor()
+                    Process process = pb.start();
 
                     int jobId = backgroundJobs.size() + 1;
                     long pid = process.pid();
 
-                    // CRITICAL FIX: Print "[1] <PID>" right away when launched
+                    // Print process info immediately upon launch: "[1] 104"
                     System.out.printf("[%d] %d\n", jobId, pid);
                     System.out.flush();
 
-                    // Save the job metadata using the original string line
                     backgroundJobs.add(new BackgroundJob(
                         jobId,
                         pid,
@@ -90,7 +83,6 @@ public class Main {
                         "Running"
                     ));
                 } else {
-                    // Foreground job execution blocks normally
                     pb.inheritIO();
                     Process process = pb.start();
                     process.waitFor();
