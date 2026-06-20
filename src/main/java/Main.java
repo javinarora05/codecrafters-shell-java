@@ -29,21 +29,32 @@ public class Main {
                 if (c == '\t') {
                     String currentText = currentLine.toString();
                     
-                    // Match built-ins exactly or partially
-                    if ("echo".startsWith(currentText) && !currentText.isEmpty()) {
-                        currentLine.setLength(0);
-                        currentLine.append("echo ");
-                    } else if ("exit".startsWith(currentText) && !currentText.isEmpty()) {
-                        currentLine.setLength(0);
-                        currentLine.append("exit ");
+                    // Only perform completion if the user hasn't already typed a full command/arguments
+                    if (!currentText.contains(" ") && !currentText.isEmpty()) {
+                        if ("echo".startsWith(currentText)) {
+                            currentLine.setLength(0);
+                            currentLine.append("echo ");
+                        } else if ("exit".startsWith(currentText)) {
+                            currentLine.setLength(0);
+                            currentLine.append("exit ");
+                        } else if ("type".startsWith(currentText)) {
+                            currentLine.setLength(0);
+                            currentLine.append("type ");
+                        } else if ("jobs".startsWith(currentText)) {
+                            currentLine.setLength(0);
+                            currentLine.append("jobs ");
+                        } else {
+                            System.out.print("\u0007");
+                            System.out.flush();
+                            continue;
+                        }
                     } else {
-                        // Sound terminal bell if no match is found
                         System.out.print("\u0007");
                         System.out.flush();
                         continue;
                     }
                     
-                    // Clear the current line in the terminal and reprint the completed text
+                    // Clear line and reprint the completed string
                     System.out.print("\r\u001B[K$ " + currentLine.toString());
                     System.out.flush();
                     
@@ -57,7 +68,6 @@ public class Main {
                 } else if (readChar == 127 || readChar == 8) {
                     if (currentLine.length() > 0) {
                         currentLine.deleteCharAt(currentLine.length() - 1);
-                        // Move cursor back, erase to end of line, rewrite
                         System.out.print("\r\u001B[K$ " + currentLine.toString());
                         System.out.flush();
                     }
@@ -88,12 +98,9 @@ public class Main {
 
     private static void setTerminalRawMode() {
         try {
-            // Disable default line buffering (-icanon) and automatic typing echo (-echo)
             String[] cmd = {"/bin/sh", "-c", "stty -echo -icanon min 1 < /dev/tty"};
             Runtime.getRuntime().exec(cmd).waitFor();
-        } catch (Exception e) {
-            // Fallback gracefully if not running in a standard TTY environment
-        }
+        } catch (Exception e) {}
     }
 
     private static List<String> parseArguments(String input) {
@@ -198,6 +205,7 @@ public class Main {
 
         String baseCommand = commandArgs.get(0);
 
+        // --- HANDLE BUILT-IN COMMANDS ---
         if (baseCommand.equals("exit")) {
             int exitCode = 0;
             if (commandArgs.size() > 1) {
@@ -208,6 +216,11 @@ public class Main {
                 }
             }
             System.exit(exitCode);
+        }
+
+        if (baseCommand.equals("jobs")) {
+            // Empty implementation for this stage as requested
+            return;
         }
 
         if (baseCommand.equals("type")) {
@@ -279,7 +292,7 @@ public class Main {
     private static void handleTypeCommand(String target, String stdoutRedirectFile, boolean appendStdout) {
         String result = "";
         
-        if (target.equals("echo") || target.equals("type") || target.equals("exit") || target.equals("pwd")) {
+        if (target.equals("echo") || target.equals("type") || target.equals("exit") || target.equals("pwd") || target.equals("jobs")) {
             result = target + " is a shell builtin";
         } else {
             String pathEnv = System.getenv("PATH");
