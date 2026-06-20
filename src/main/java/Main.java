@@ -12,7 +12,7 @@ public class Main {
         long pid;
         String command;
         String status;
-        Process process; // Keep track of the process instance to check its life status
+        Process process;
 
         BackgroundJob(int id, long pid, String command, String status, Process process) {
             this.id = id;
@@ -23,12 +23,16 @@ public class Main {
         }
     }
 
+    private static List<BackgroundJob> backgroundJobs = new ArrayList<>();
+
     public static void main(String[] args) throws Exception {
-        List<BackgroundJob> backgroundJobs = new ArrayList<>();
         BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
         List<String> builtins = Arrays.asList("exit", "echo", "type", "pwd", "cd", "jobs");
 
         while (true) {
+            // FIX FOR BV8: Reap and report finished jobs BEFORE displaying the prompt
+            reapCompletedJobs();
+
             System.out.print("$ ");
             System.out.flush();
 
@@ -52,39 +56,20 @@ public class Main {
                 break;
             }
 
-            // FIX FOR MA9: Handle 'jobs' with dynamic status checking and job reaping
+            // Inside 'jobs' builtin: Reap completed processes right before rendering the list
             if (tokens[0].equals("jobs")) {
-                int totalJobs = backgroundJobs.size();
-                Iterator<BackgroundJob> iterator = backgroundJobs.iterator();
-                int index = 0;
-
-                while (iterator.hasNext()) {
-                    BackgroundJob job = iterator.next();
-                    
-                    // Check if the background process has exited normally
-                    if (!job.process.isAlive() && job.status.equals("Running")) {
-                        job.status = "Done";
-                        // CRITICAL: Strip the trailing " &" from the command display when Done
-                        if (job.command.endsWith(" &")) {
-                            job.command = job.command.substring(0, job.command.length() - 2);
-                        }
-                    }
-
+                reapCompletedJobs();
+                
+                int currentTotal = backgroundJobs.size();
+                for (int i = 0; i < currentTotal; i++) {
+                    BackgroundJob job = backgroundJobs.get(i);
                     String marker = " ";
-                    if (index == totalJobs - 1) {
+                    if (i == currentTotal - 1) {
                         marker = "+";
-                    } else if (index == totalJobs - 2) {
+                    } else if (i == currentTotal - 2) {
                         marker = "-";
                     }
-
-                    // Print the job status
                     System.out.printf("[%d]%s  %-24s%s\n", job.id, marker, job.status, job.command);
-
-                    // If it was Done, remove it from our active jobs list after displaying it once
-                    if (job.status.equals("Done")) {
-                        iterator.remove();
-                    }
-                    index++;
                 }
                 System.out.flush();
                 continue;
@@ -145,13 +130,12 @@ public class Main {
                     pb.redirectError(ProcessBuilder.Redirect.INHERIT);
                     Process process = pb.start();
 
-                    int jobId = backgroundJobs.size() + 1;
+                    int jobId = backgroundJobs.isEmpty() ? 1 : backgroundJobs.get(backgroundJobs.size() - 1).id + 1;
                     long pid = process.pid();
 
                     System.out.printf("[%d] %d\n", jobId, pid);
                     System.out.flush();
 
-                    // Track the process instance directly for status polling
                     backgroundJobs.add(new BackgroundJob(jobId, pid, commandLine, "Running", process));
                 } else {
                     if (redirectFile != null) {
@@ -183,6 +167,39 @@ public class Main {
                 System.out.flush();
             }
         }
+    }
+
+    // Helper method handling unified job reaping logic
+    private static void reapCompletedJobs() {
+        int initialTotal = backgroundJobs.size();
+        for (int i = 0; i < backgroundJobs.size(); i++) {
+            BackgroundJob job = backgroundJobs.get(i);
+            if (!job.process.isAlive() && job.status.equals("Running")) {
+                job.status = "Done";
+                if (job.command.endsWith(" &")) {
+                    job.command = job.command.substring(0, job.command.length() - 2);
+                }
+
+                // Recalculate context-aware dynamic markers (+ / -) before purging
+                String marker = " ";
+                if (i == initialTotal - 1) {
+                    marker = "+";
+                } else if (i == initialTotal - 2) {
+                    marker = "-";
+                }
+
+                System.out.printf("[%d]%s  %-24s%s\n", job.id, marker, job.status, job.command);
+            }
+        }
+
+        // Wipe clean reaped tasks so subsequent jobs loops exclude them
+        Iterator<BackgroundJob> iterator = backgroundJobs.iterator();
+        while (iterator.hasNext()) {
+            if (iterator.next().status.equals("Done")) {
+                iterator.remove();
+            }
+        }
+        System.out.flush();
     }
 
     private static List<String> parseCommandLine(String commandLine) {
