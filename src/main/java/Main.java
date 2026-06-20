@@ -30,7 +30,7 @@ public class Main {
         List<String> builtins = Arrays.asList("exit", "echo", "type", "pwd", "cd", "jobs");
 
         while (true) {
-            // FIX FOR BV8: Always reap and report any completed jobs right before printing the prompt
+            // Reap and print finished jobs right before presenting the prompt
             reapCompletedJobs();
 
             System.out.print("$ ");
@@ -56,7 +56,6 @@ public class Main {
                 break;
             }
 
-            // Inside 'jobs' builtin: Reap completed processes right before rendering the list
             if (tokens[0].equals("jobs")) {
                 reapAndPrintJobsBuiltin();
                 continue;
@@ -156,10 +155,11 @@ public class Main {
         }
     }
 
-    // Dynamic marker helper for both runtime paths
+    // Fixed marker assignment logic
     private static void printWithMarkers(List<BackgroundJob> list) {
         int mostRecentRunningIdx = -1;
         int secondMostRecentRunningIdx = -1;
+
         for (int i = list.size() - 1; i >= 0; i--) {
             if (list.get(i).status.equals("Running")) {
                 if (mostRecentRunningIdx == -1) {
@@ -179,7 +179,8 @@ public class Main {
                 if (i == mostRecentRunningIdx) marker = "+";
                 else if (i == secondMostRecentRunningIdx) marker = "-";
             } else if (job.status.equals("Done")) {
-                if (i == list.size() - 1) marker = "+";
+                // If the transitioning job was previously the most recent, maintain its context
+                if (i == list.size() - 1 || mostRecentRunningIdx == -1) marker = "+";
                 else if (i == list.size() - 2) marker = "-";
             }
 
@@ -187,7 +188,7 @@ public class Main {
         }
     }
 
-    // Automatic pre-prompt reaper handler
+    // Handles automatic async job completion prints before prompt
     private static void reapCompletedJobs() {
         boolean hasDoneJobs = false;
         
@@ -214,7 +215,7 @@ public class Main {
         }
     }
 
-    // jobs builtin handler
+    // Handles intentional user 'jobs' requests
     private static void reapAndPrintJobsBuiltin() {
         for (BackgroundJob job : backgroundJobs) {
             if (!job.process.isAlive() && job.status.equals("Running")) {
