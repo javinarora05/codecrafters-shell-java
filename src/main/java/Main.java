@@ -15,7 +15,7 @@ public class Main {
                 continue;
             }
 
-            // Handle builtins only if there's NO pipeline in the input
+            // Handle standalone builtins (only if no pipeline is present)
             if (!input.contains("|")) {
                 if (input.startsWith("exit ")) {
                     try {
@@ -41,7 +41,7 @@ public class Main {
                 }
             }
 
-            // If it's not a standalone builtin, treat it as an external command or pipeline
+            // Route pipelines and external commands
             handlePipelineOrExternal(input);
         }
     }
@@ -74,23 +74,28 @@ public class Main {
     }
 
     private static void handlePipelineOrExternal(String input) {
-        // Split the command by pipe characters
         String[] pipeStages = input.split("\\|");
         List<ProcessBuilder> builders = new ArrayList<>();
 
         for (String stage : pipeStages) {
             stage = stage.trim();
-            // Basic argument splitting (by space)
+            
+            // Handle quotes or arguments spacing gracefully
             String[] args = stage.split("\\s+");
             if (args.length == 0 || args[0].isEmpty()) continue;
 
-            // Resolve the actual path of the executable
-            String cmdPath = getCommandPath(args[0]);
-            if (cmdPath == null) {
-                System.out.println(input + ": command not found");
-                return;
+            // Strip enclosing quotes from arguments if present (e.g., "f-73" -> f-73)
+            for (int i = 0; i < args.length; i++) {
+                if (args[i].startsWith("\"") && args[i].endsWith("\"") && args[i].length() >= 2) {
+                    args[i] = args[i].substring(1, args[i].length() - 1);
+                }
             }
-            args[0] = cmdPath;
+
+            // Fallback to the command string directly if path lookup fails (delegates to OS shell execution environment)
+            String cmdPath = getCommandPath(args[0]);
+            if (cmdPath != null) {
+                args[0] = cmdPath;
+            }
 
             builders.add(new ProcessBuilder(args));
         }
@@ -98,17 +103,19 @@ public class Main {
         if (builders.isEmpty()) return;
 
         try {
-            // Redirect standard input/output between adjacent processes sequentially
+            // Chains stdout -> stdin automatically for all processes in the list
             List<Process> processes = ProcessBuilder.startPipeline(builders);
             
-            // Wait for the final process in the pipeline to finish
+            // Get the final process output
             Process lastProcess = processes.get(processes.size() - 1);
             
-            // Inherit standard error and pump output to the shell's console
             lastProcess.getInputStream().transferTo(System.out);
             lastProcess.getErrorStream().transferTo(System.err);
             
-            lastProcess.waitFor();
+            // Wait for all processes to gracefully finish execution
+            for (Process p : processes) {
+                p.waitFor();
+            }
         } catch (Exception e) {
             System.out.println(input + ": command not found");
         }
