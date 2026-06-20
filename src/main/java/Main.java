@@ -1,4 +1,5 @@
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -22,8 +23,6 @@ public class Main {
     public static void main(String[] args) throws Exception {
         List<BackgroundJob> backgroundJobs = new ArrayList<>();
         BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
-
-        // List of builtins to check against for the 'type' command
         List<String> builtins = Arrays.asList("exit", "echo", "type", "pwd", "cd", "jobs");
 
         while (true) {
@@ -42,12 +41,10 @@ public class Main {
 
             String[] tokens = commandLine.split("\\s+");
 
-            // 1. Handle 'exit' builtin
             if (tokens[0].equals("exit")) {
                 break;
             }
 
-            // 2. Handle 'jobs' builtin
             if (tokens[0].equals("jobs")) {
                 for (BackgroundJob job : backgroundJobs) {
                     System.out.printf("[%d]+  %-24s%s\n", job.id, job.status, job.command);
@@ -56,13 +53,11 @@ public class Main {
                 continue;
             }
 
-            // 3. Handle 'type' builtin (FIX FOR AF3)
             if (tokens[0].equals("type") && tokens.length > 1) {
                 String target = tokens[1];
                 if (builtins.contains(target)) {
                     System.out.printf("%s is a shell builtin\n", target);
                 } else {
-                    // Check PATH or print not found (reusing standard logic)
                     String path = getPath(target);
                     if (path != null) {
                         System.out.printf("%s is %s\n", target, path);
@@ -74,7 +69,6 @@ public class Main {
                 continue;
             }
 
-            // 4. Check for background execution indicator '&'
             boolean isBackground = false;
             String[] execArgs = tokens;
             if (tokens[tokens.length - 1].equals("&")) {
@@ -83,8 +77,35 @@ public class Main {
             }
 
             try {
-                ProcessBuilder pb = new ProcessBuilder(execArgs);
+                ProcessBuilder pb = new ProcessBuilder();
                 
+                // Redirection handling variables
+                String redirectFile = null;
+                boolean appendMode = false;
+                int redirectStream = 1; // 1 = stdout, 2 = stderr
+                int redirectIndex = -1;
+
+                // Scan args for redirection operators: >, >>, 2>, 2>>
+                for (int i = 0; i < execArgs.length; i++) {
+                    if (execArgs[i].equals(">")) {
+                        redirectStream = 1; appendMode = false; redirectIndex = i; break;
+                    } else if (execArgs[i].equals(">>")) {
+                        redirectStream = 1; appendMode = true; redirectIndex = i; break;
+                    } else if (execArgs[i].equals("2>")) {
+                        redirectStream = 2; appendMode = false; redirectIndex = i; break;
+                    } else if (execArgs[i].equals("2>>")) {
+                        redirectStream = 2; appendMode = true; redirectIndex = i; break;
+                    }
+                }
+
+                // If a redirection operator was found, strip it out of executable arguments
+                if (redirectIndex != -1 && redirectIndex + 1 < execArgs.length) {
+                    redirectFile = execArgs[redirectIndex + 1];
+                    execArgs = Arrays.copyOfRange(execArgs, 0, redirectIndex);
+                }
+
+                pb.command(execArgs);
+
                 if (isBackground) {
                     pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
                     pb.redirectError(ProcessBuilder.Redirect.INHERIT);
@@ -96,14 +117,31 @@ public class Main {
                     System.out.printf("[%d] %d\n", jobId, pid);
                     System.out.flush();
 
-                    backgroundJobs.add(new BackgroundJob(
-                        jobId,
-                        pid,
-                        commandLine,
-                        "Running"
-                    ));
+                    backgroundJobs.add(new BackgroundJob(jobId, pid, commandLine, "Running"));
                 } else {
-                    pb.inheritIO();
+                    // Apply redirection if present
+                    if (redirectFile != null) {
+                        File file = new File(redirectFile);
+                        // Ensure parent directory structure exists if necessary
+                        if (file.getParentFile() != null) {
+                            file.getParentFile().mkdirs();
+                        }
+                        
+                        ProcessBuilder.Redirect targetRedirect = appendMode ? 
+                                ProcessBuilder.Redirect.appendTo(file) : 
+                                ProcessBuilder.Redirect.to(file);
+
+                        if (redirectStream == 1) {
+                            pb.redirectOutput(targetRedirect);
+                            pb.redirectError(ProcessBuilder.Redirect.INHERIT);
+                        } else {
+                            pb.redirectError(targetRedirect);
+                            pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
+                        }
+                    } else {
+                        pb.inheritIO();
+                    }
+
                     Process process = pb.start();
                     process.waitFor();
                 }
@@ -114,7 +152,6 @@ public class Main {
         }
     }
 
-    // Helper method to resolve command PATH from earlier stages
     private static String getPath(String command) {
         String pathEnv = System.getenv("PATH");
         if (pathEnv == null) return null;
