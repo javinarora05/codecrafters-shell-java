@@ -13,7 +13,7 @@ public class Main {
     private static class BackgroundJob {
         int jobId;
         Process process;
-        String commandClean; // Main command text without trailing &
+        String commandClean;
 
         BackgroundJob(int jobId, Process process, String commandClean) {
             this.jobId = jobId;
@@ -94,7 +94,6 @@ public class Main {
                     marker = "-";
                 }
                 
-                // Actively check state right now to prevent race conditions with the tester
                 if (!job.process.isAlive()) {
                     System.out.printf("[%d]%s  Done                 %s\n", job.jobId, marker, job.commandClean);
                     finishedDuringJobsCmd.add(job);
@@ -102,7 +101,6 @@ public class Main {
                     System.out.printf("[%d]%s  Running                 %s &\n", job.jobId, marker, job.commandClean);
                 }
             }
-            // Clean up any jobs that were reported completed during this run
             activeJobs.removeAll(finishedDuringJobsCmd);
             return;
         }
@@ -130,8 +128,18 @@ public class Main {
                 
                 activeJobs.add(new BackgroundJob(jobId, process, cleanCommand));
                 
-                process.getInputStream().close();
-                process.getErrorStream().close();
+                // Read streams asynchronously instead of closing them immediately to keep FIFOs open
+                Thread discardThread = new Thread(() -> {
+                    try (InputStream is = process.getInputStream(); 
+                         InputStream es = process.getErrorStream()) {
+                        byte[] buffer = new byte[1024];
+                        while (is.read(buffer) != -1 || es.read(buffer) != -1) {
+                            // keep reading to drain buffers safely without closing pipes early
+                        }
+                    } catch (Exception ignored) {}
+                });
+                discardThread.setDaemon(true);
+                discardThread.start();
             } else {
                 process.getInputStream().transferTo(System.out);
                 process.getErrorStream().transferTo(System.err);
