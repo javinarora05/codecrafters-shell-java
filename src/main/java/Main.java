@@ -39,7 +39,6 @@ public class Main {
                 continue;
             }
 
-            // FIX FOR QJ0: Use a smart token parser that respects single and double quotes
             List<String> tokenList = parseCommandLine(commandLine);
             if (tokenList.isEmpty()) {
                 continue;
@@ -50,9 +49,23 @@ public class Main {
                 break;
             }
 
+            // Handle 'jobs' builtin with dynamic markers (+ / - / space)
             if (tokens[0].equals("jobs")) {
-                for (BackgroundJob job : backgroundJobs) {
-                    System.out.printf("[%d]+  %-24s%s\n", job.id, job.status, job.command);
+                int totalJobs = backgroundJobs.size();
+                for (int i = 0; i < totalJobs; i++) {
+                    BackgroundJob job = backgroundJobs.get(i);
+                    
+                    // FIX FOR DK5: Determine the correct marker
+                    String marker = " ";
+                    if (i == totalJobs - 1) {
+                        marker = "+"; // Most recent
+                    } else if (i == totalJobs - 2) {
+                        marker = "-"; // Second most recent
+                    }
+
+                    // Exact format: "[1] +  Running                 sleep 10 &"
+                    // If marker is space: "[1]    Running                 sleep 10 &"
+                    System.out.printf("[%d]%s  %-24s%s\n", job.id, marker, job.status, job.command);
                 }
                 System.out.flush();
                 continue;
@@ -152,7 +165,6 @@ public class Main {
         }
     }
 
-    // Helper method to parse strings while honoring quotes
     private static List<String> parseCommandLine(String commandLine) {
         List<String> list = new ArrayList<>();
         StringBuilder currentToken = new StringBuilder();
@@ -167,7 +179,6 @@ public class Main {
                 currentToken.append(c);
                 escaped = false;
             } else if (c == '\\' && !inSingleQuotes) {
-                // Keep the backslash literal if inside double quotes and not escaping special characters
                 if (inDoubleQuotes) {
                     if (i + 1 < commandLine.length()) {
                         char next = commandLine.charAt(i + 1);
