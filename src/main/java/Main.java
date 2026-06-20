@@ -155,40 +155,53 @@ public class Main {
         }
     }
 
-    // FIXED: Prints in chronological Job ID sequence as expected by the 'jobs' builtin
+    // Dynamic marker allocator based purely on status histories
     private static void printWithMarkers(List<BackgroundJob> list) {
-        int mostRecentIdx = -1;
-        int secondMostRecentIdx = -1;
+        int mostRecentRunningIdx = -1;
+        int secondMostRecentRunningIdx = -1;
 
+        // Trace remaining active jobs backwards
         for (int i = list.size() - 1; i >= 0; i--) {
-            if (mostRecentIdx == -1) {
-                mostRecentIdx = i;
-            } else if (secondMostRecentIdx == -1) {
-                secondMostRecentIdx = i;
-                break;
+            if (list.get(i).status.equals("Running")) {
+                if (mostRecentRunningIdx == -1) {
+                    mostRecentRunningIdx = i;
+                } else if (secondMostRecentRunningIdx == -1) {
+                    secondMostRecentRunningIdx = i;
+                    break;
+                }
             }
         }
 
         for (int i = 0; i < list.size(); i++) {
             BackgroundJob job = list.get(i);
             String marker = " ";
-            if (i == mostRecentIdx) marker = "+";
-            else if (i == secondMostRecentIdx) marker = "-";
+            
+            if (job.status.equals("Running")) {
+                if (i == mostRecentRunningIdx) marker = "+";
+                else if (i == secondMostRecentRunningIdx) marker = "-";
+            } else if (job.status.equals("Done")) {
+                // Done jobs inherit the context pointers relative to chronological layout
+                if (i == list.size() - 1 || mostRecentRunningIdx == -1) marker = "+";
+                else if (i == list.size() - 2) marker = "-";
+            }
+
             System.out.printf("[%d]%s  %-24s%s\n", job.id, marker, job.status, job.command);
         }
     }
 
-    // Only prints jobs that explicitly change state to "Done" before a prompt
     private static void reapCompletedJobs() {
-        int mostRecentIdx = -1;
-        int secondMostRecentIdx = -1;
+        // Find markers prior to mutation
+        int mostRecentRunningIdx = -1;
+        int secondMostRecentRunningIdx = -1;
 
         for (int i = backgroundJobs.size() - 1; i >= 0; i--) {
-            if (mostRecentIdx == -1) {
-                mostRecentIdx = i;
-            } else if (secondMostRecentIdx == -1) {
-                secondMostRecentIdx = i;
-                break;
+            if (backgroundJobs.get(i).status.equals("Running")) {
+                if (mostRecentRunningIdx == -1) {
+                    mostRecentRunningIdx = i;
+                } else if (secondMostRecentRunningIdx == -1) {
+                    secondMostRecentRunningIdx = i;
+                    break;
+                }
             }
         }
 
@@ -201,8 +214,8 @@ public class Main {
                 }
 
                 String marker = " ";
-                if (i == mostRecentIdx) marker = "+";
-                else if (i == secondMostRecentIdx) marker = "-";
+                if (i == mostRecentRunningIdx) marker = "+";
+                else if (i == secondMostRecentRunningIdx) marker = "-";
 
                 System.out.printf("[%d]%s  %-24s%s\n", job.id, marker, job.status, job.command);
             }
@@ -217,7 +230,6 @@ public class Main {
         System.out.flush();
     }
 
-    // Explicit 'jobs' command reports all remaining tasks in ID order
     private static void reapAndPrintJobsBuiltin() {
         for (BackgroundJob job : backgroundJobs) {
             if (!job.process.isAlive() && job.status.equals("Running")) {
