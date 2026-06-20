@@ -1,30 +1,98 @@
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.Reader;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Scanner;
 
 public class Main {
     public static void main(String[] args) throws Exception {
-        Scanner scanner = new Scanner(System.in);
-        
+        // Configure terminal to raw mode so we get character-by-character input immediately
+        setTerminalRawMode();
+
+        Reader reader = new InputStreamReader(System.in);
+        StringBuilder currentLine = new StringBuilder();
+
         while (true) {
-            System.out.print("$ ");
-            if (!scanner.hasNextLine()) {
-                break;
+            System.out.print("$ " + currentLine.toString());
+            System.out.flush();
+
+            while (true) {
+                int readChar = reader.read();
+                if (readChar == -1) {
+                    System.exit(0);
+                }
+
+                char c = (char) readChar;
+
+                // Handle Tab Key
+                if (c == '\t') {
+                    String currentText = currentLine.toString();
+                    
+                    // Match built-ins exactly or partially
+                    if ("echo".startsWith(currentText) && !currentText.isEmpty()) {
+                        currentLine.setLength(0);
+                        currentLine.append("echo ");
+                    } else if ("exit".startsWith(currentText) && !currentText.isEmpty()) {
+                        currentLine.setLength(0);
+                        currentLine.append("exit ");
+                    } else {
+                        // Sound terminal bell if no match is found
+                        System.out.print("\u0007");
+                        System.out.flush();
+                        continue;
+                    }
+                    
+                    // Clear the current line in the terminal and reprint the completed text
+                    System.out.print("\r\u001B[K$ " + currentLine.toString());
+                    System.out.flush();
+                    
+                // Handle Enter Key
+                } else if (c == '\n' || c == '\r') {
+                    System.out.print("\r\n");
+                    System.out.flush();
+                    break;
+                    
+                // Handle Backspace Key (ASCII 127 or 8)
+                } else if (readChar == 127 || readChar == 8) {
+                    if (currentLine.length() > 0) {
+                        currentLine.deleteCharAt(currentLine.length() - 1);
+                        // Move cursor back, erase to end of line, rewrite
+                        System.out.print("\r\u001B[K$ " + currentLine.toString());
+                        System.out.flush();
+                    }
+                    
+                // Regular visible character input
+                } else {
+                    currentLine.append(c);
+                    System.out.print(c);
+                    System.out.flush();
+                }
             }
-            String input = scanner.nextLine().trim();
-            
+
+            String input = currentLine.toString().trim();
+            currentLine.setLength(0);
+
             if (input.isEmpty()) {
                 continue;
             }
-            
+
             List<String> tokens = parseArguments(input);
             if (tokens.isEmpty()) {
                 continue;
             }
-            
+
             executeCommand(tokens);
+        }
+    }
+
+    private static void setTerminalRawMode() {
+        try {
+            // Disable default line buffering (-icanon) and automatic typing echo (-echo)
+            String[] cmd = {"/bin/sh", "-c", "stty -echo -icanon min 1 < /dev/tty"};
+            Runtime.getRuntime().exec(cmd).waitFor();
+        } catch (Exception e) {
+            // Fallback gracefully if not running in a standard TTY environment
         }
     }
 
@@ -78,7 +146,6 @@ public class Main {
         boolean appendStderr = false;
         List<String> commandArgs = new ArrayList<>();
 
-        // Strict evaluation of redirection tokens to avoid collision
         for (int i = 0; i < tokens.size(); i++) {
             String token = tokens.get(i);
             if (token.equals(">>") || token.equals("1>>")) {
@@ -114,7 +181,6 @@ public class Main {
             return;
         }
 
-        // --- PRE-CREATE REDIRECTION FILES ---
         if (stdoutRedirectFile != null) {
             try {
                 File outFile = new File(stdoutRedirectFile);
@@ -132,7 +198,6 @@ public class Main {
 
         String baseCommand = commandArgs.get(0);
 
-        // --- HANDLE BUILT-IN COMMANDS ---
         if (baseCommand.equals("exit")) {
             int exitCode = 0;
             if (commandArgs.size() > 1) {
@@ -178,11 +243,9 @@ public class Main {
             return;
         }
 
-        // --- EXTERNAL COMMANDS ---
         try {
             ProcessBuilder pb = new ProcessBuilder(commandArgs);
 
-            // Handle Standard Output Redirection
             if (stdoutRedirectFile != null) {
                 File outFile = new File(stdoutRedirectFile);
                 if (appendStdout) {
@@ -194,7 +257,6 @@ public class Main {
                 pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
             }
 
-            // Handle Standard Error Redirection (2> vs 2>>)
             if (stderrRedirectFile != null) {
                 File errFile = new File(stderrRedirectFile);
                 if (appendStderr) {
