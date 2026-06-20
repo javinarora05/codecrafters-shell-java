@@ -43,11 +43,8 @@ public class Main {
                 break;
             }
 
-            // 1. Handle 'jobs' builtin with the corrected exact spacing
             if (tokens[0].equals("jobs")) {
                 for (BackgroundJob job : backgroundJobs) {
-                    // %-24s left-aligns "Running" and pads it to exactly 24 characters total
-                    // Format matches exactly: "[1]+  Running                 sleep 100 &"
                     System.out.printf("[%d]+  %-24s%s\n", job.id, job.status, job.command);
                 }
                 System.out.flush();
@@ -65,14 +62,15 @@ public class Main {
                 ProcessBuilder pb = new ProcessBuilder(execArgs);
                 
                 if (isBackground) {
-                    pb.redirectOutput(ProcessBuilder.Redirect.DISCARD);
-                    pb.redirectError(ProcessBuilder.Redirect.DISCARD);
+                    // FIX FOR SI2: Inherit standard output and error so background job output is printed
+                    pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
+                    pb.redirectError(ProcessBuilder.Redirect.INHERIT);
+                    
                     Process process = pb.start();
 
                     int jobId = backgroundJobs.size() + 1;
                     long pid = process.pid();
 
-                    // Print process info immediately upon launch: "[1] 104"
                     System.out.printf("[%d] %d\n", jobId, pid);
                     System.out.flush();
 
