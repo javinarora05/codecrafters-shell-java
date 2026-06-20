@@ -121,7 +121,6 @@ public class Main {
             pb.environment().put("PATH", System.getenv("PATH"));
             
             if (isBackground) {
-                // Inherit stdout to allow background processes to print into the terminal dynamically
                 pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
                 pb.redirectError(ProcessBuilder.Redirect.DISCARD);
                 
@@ -143,7 +142,7 @@ public class Main {
     }
 
     private static boolean isBuiltin(String cmd) {
-        return cmd.equals("echo") || cmd.equals("exit") || cmd.equals("type") || cmd.equals("pwd");
+        return cmd.equals("echo") || cmd.equals("exit") || cmd.equals("type") || cmd.equals("pwd") || cmd.equals("jobs");
     }
 
     private static void stripQuotes(String[] args) {
