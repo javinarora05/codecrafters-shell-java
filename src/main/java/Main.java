@@ -117,7 +117,13 @@ public class Main {
         }
 
         try {
-            ProcessBuilder pb = new ProcessBuilder("/bin/sh", "-c", cleanCommand);
+            // For background execution, safely use OS redirect logic instead of Java threads
+            String shellExecCommand = cleanCommand;
+            if (isBackground) {
+                shellExecCommand = cleanCommand + " > /dev/null 2>&1";
+            }
+
+            ProcessBuilder pb = new ProcessBuilder("/bin/sh", "-c", shellExecCommand);
             pb.environment().put("PATH", System.getenv("PATH"));
             
             Process process = pb.start();
@@ -127,19 +133,6 @@ public class Main {
                 System.out.println("[" + jobId + "] " + process.pid());
                 
                 activeJobs.add(new BackgroundJob(jobId, process, cleanCommand));
-                
-                // Read streams asynchronously instead of closing them immediately to keep FIFOs open
-                Thread discardThread = new Thread(() -> {
-                    try (InputStream is = process.getInputStream(); 
-                         InputStream es = process.getErrorStream()) {
-                        byte[] buffer = new byte[1024];
-                        while (is.read(buffer) != -1 || es.read(buffer) != -1) {
-                            // keep reading to drain buffers safely without closing pipes early
-                        }
-                    } catch (Exception ignored) {}
-                });
-                discardThread.setDaemon(true);
-                discardThread.start();
             } else {
                 process.getInputStream().transferTo(System.out);
                 process.getErrorStream().transferTo(System.err);
