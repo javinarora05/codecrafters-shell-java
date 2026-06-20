@@ -165,7 +165,7 @@ public class Main {
 
         String command = parsedArgs.get(0);
 
-        // Native Builtin Interception
+        // Native Builtin Interception (Runs builtins natively if no pipelines/redirections exist)
         if (isBuiltin(command) && !cleanCommand.contains("|") && !cleanCommand.contains(">") && !cleanCommand.contains("<")) {
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             String[] argsArray = parsedArgs.toArray(new String[0]);
@@ -174,14 +174,29 @@ public class Main {
             return;
         }
 
-        // Validate command existence to prevent /bin/sh leaking alternative error formats
-        if (!isBuiltin(command) && getCommandPath(command) == null && !command.contains("/") && !cleanCommand.contains("|")) {
-            System.out.println(command + ": command not found");
-            return;
+        // Validate executable command presence to prevent shell leak formatting errors
+        if (!isBuiltin(command) && !cleanCommand.contains("|")) {
+            boolean exists = false;
+            if (command.contains("/")) {
+                File file = new File(command);
+                if (file.exists() && file.isFile() && file.canExecute()) {
+                    exists = true;
+                }
+            } else {
+                if (getCommandPath(command) != null) {
+                    exists = true;
+                }
+            }
+            if (!exists) {
+                System.out.println(command + ": command not found");
+                return;
+            }
         }
 
         try {
             ProcessBuilder pb = new ProcessBuilder("/bin/sh", "-c", cleanCommand);
+            // Set current working directory dynamically for external binaries to respect cd transitions
+            pb.directory(new File(System.getProperty("user.dir")));
             pb.environment().put("PATH", System.getenv("PATH"));
             
             if (isBackground) {
@@ -206,7 +221,7 @@ public class Main {
     }
 
     private static boolean isBuiltin(String cmd) {
-        return cmd.equals("echo") || cmd.equals("exit") || cmd.equals("type") || cmd.equals("pwd") || cmd.equals("jobs");
+        return cmd.equals("echo") || cmd.equals("exit") || cmd.equals("type") || cmd.equals("pwd") || cmd.equals("jobs") || cmd.equals("cd");
     }
 
     private static void executeBuiltin(String cmd, String[] args, InputStream in, ByteArrayOutputStream out) {
@@ -228,6 +243,24 @@ public class Main {
             outputBuffer.append("\n");
         } else if (cmd.equals("pwd")) {
             outputBuffer.append(System.getProperty("user.dir")).append("\n");
+        } else if (cmd.equals("cd")) {
+            String targetPath = (args.length > 1) ? args[1] : System.getenv("HOME");
+            if (targetPath != null) {
+                File dir = new File(targetPath);
+                // Resolve relative pathings (. or ..) up into a canonical string format
+                if (!dir.isAbsolute()) {
+                    dir = new File(System.getProperty("user.dir"), targetPath);
+                }
+                try {
+                    if (dir.exists() && dir.isDirectory()) {
+                        System.setProperty("user.dir", dir.getCanonicalPath());
+                    } else {
+                        System.out.println("cd: " + targetPath + ": No such file or directory");
+                    }
+                } catch (Exception e) {
+                    System.out.println("cd: " + targetPath + ": No such file or directory");
+                }
+            }
         } else if (cmd.equals("type")) {
             if (args.length > 1) {
                 String targetCmd = args[1];
