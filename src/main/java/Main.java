@@ -98,9 +98,26 @@ public class Main {
             return;
         }
 
+        // --- PRE-CREATE REDIRECTION FILES ---
+        // Shells must create the files immediately, even if they end up being empty
+        if (stdoutRedirectFile != null) {
+            try {
+                File outFile = new File(stdoutRedirectFile);
+                if (outFile.getParentFile() != null) outFile.getParentFile().mkdirs();
+                if (!outFile.exists()) outFile.createNewFile();
+            } catch (IOException e) {}
+        }
+        if (stderrRedirectFile != null) {
+            try {
+                File errFile = new File(stderrRedirectFile);
+                if (errFile.getParentFile() != null) errFile.getParentFile().mkdirs();
+                if (!errFile.exists()) errFile.createNewFile();
+            } catch (IOException e) {}
+        }
+
         String baseCommand = commandArgs.get(0);
 
-        // --- HANDLE BUILT-IN COMMANDS FIRST ---
+        // --- HANDLE BUILT-IN COMMANDS ---
         if (baseCommand.equals("type")) {
             if (commandArgs.size() > 1) {
                 String target = commandArgs.get(1);
@@ -110,7 +127,6 @@ public class Main {
         }
         
         if (baseCommand.equals("echo")) {
-            // Reconstruct string to print, omitting 'echo'
             StringBuilder sb = new StringBuilder();
             for (int i = 1; i < commandArgs.size(); i++) {
                 sb.append(commandArgs.get(i));
@@ -121,7 +137,6 @@ public class Main {
             if (stdoutRedirectFile != null) {
                 try {
                     File outFile = new File(stdoutRedirectFile);
-                    if (outFile.getParentFile() != null) outFile.getParentFile().mkdirs();
                     java.nio.file.Files.writeString(outFile.toPath(), output + "\n");
                 } catch (IOException e) {
                     e.printStackTrace();
@@ -137,17 +152,13 @@ public class Main {
             ProcessBuilder pb = new ProcessBuilder(commandArgs);
 
             if (stdoutRedirectFile != null) {
-                File outFile = new File(stdoutRedirectFile);
-                if (outFile.getParentFile() != null) outFile.getParentFile().mkdirs();
-                pb.redirectOutput(ProcessBuilder.Redirect.to(outFile));
+                pb.redirectOutput(ProcessBuilder.Redirect.to(new File(stdoutRedirectFile)));
             } else {
                 pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
             }
 
             if (stderrRedirectFile != null) {
-                File errFile = new File(stderrRedirectFile);
-                if (errFile.getParentFile() != null) errFile.getParentFile().mkdirs();
-                pb.redirectError(ProcessBuilder.Redirect.to(errFile));
+                pb.redirectError(ProcessBuilder.Redirect.to(new File(stderrRedirectFile)));
             } else {
                 pb.redirectError(ProcessBuilder.Redirect.INHERIT);
             }
@@ -163,11 +174,9 @@ public class Main {
     private static void handleTypeCommand(String target, String stdoutRedirectFile) {
         String result = "";
         
-        // Check shell built-ins
         if (target.equals("echo") || target.equals("type") || target.equals("exit") || target.equals("pwd")) {
             result = target + " is a shell builtin";
         } else {
-            // Check executable files in PATH
             String pathEnv = System.getenv("PATH");
             boolean found = false;
             if (pathEnv != null) {
@@ -186,11 +195,9 @@ public class Main {
             }
         }
 
-        // Route output to file if redirected, otherwise print to terminal
         if (stdoutRedirectFile != null) {
             try {
                 File outFile = new File(stdoutRedirectFile);
-                if (outFile.getParentFile() != null) outFile.getParentFile().mkdirs();
                 java.nio.file.Files.writeString(outFile.toPath(), result + "\n");
             } catch (IOException e) {
                 e.printStackTrace();
