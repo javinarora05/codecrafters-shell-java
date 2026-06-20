@@ -155,19 +155,18 @@ public class Main {
         }
     }
 
-    // Fixed marker assignment logic
+    // FIXED: Correctly allocates markers (+/-) based on historic execution order
     private static void printWithMarkers(List<BackgroundJob> list) {
-        int mostRecentRunningIdx = -1;
-        int secondMostRecentRunningIdx = -1;
+        int mostRecentIdx = -1;
+        int secondMostRecentIdx = -1;
 
+        // Scan backwards to find the top two jobs regardless of whether they are Running or recently Done
         for (int i = list.size() - 1; i >= 0; i--) {
-            if (list.get(i).status.equals("Running")) {
-                if (mostRecentRunningIdx == -1) {
-                    mostRecentRunningIdx = i;
-                } else if (secondMostRecentRunningIdx == -1) {
-                    secondMostRecentRunningIdx = i;
-                    break;
-                }
+            if (mostRecentIdx == -1) {
+                mostRecentIdx = i;
+            } else if (secondMostRecentIdx == -1) {
+                secondMostRecentIdx = i;
+                break;
             }
         }
 
@@ -175,20 +174,16 @@ public class Main {
             BackgroundJob job = list.get(i);
             String marker = " ";
             
-            if (job.status.equals("Running")) {
-                if (i == mostRecentRunningIdx) marker = "+";
-                else if (i == secondMostRecentRunningIdx) marker = "-";
-            } else if (job.status.equals("Done")) {
-                // If the transitioning job was previously the most recent, maintain its context
-                if (i == list.size() - 1 || mostRecentRunningIdx == -1) marker = "+";
-                else if (i == list.size() - 2) marker = "-";
+            if (i == mostRecentIdx) {
+                marker = "+";
+            } else if (i == secondMostRecentIdx) {
+                marker = "-";
             }
 
             System.out.printf("[%d]%s  %-24s%s\n", job.id, marker, job.status, job.command);
         }
     }
 
-    // Handles automatic async job completion prints before prompt
     private static void reapCompletedJobs() {
         boolean hasDoneJobs = false;
         
@@ -215,7 +210,6 @@ public class Main {
         }
     }
 
-    // Handles intentional user 'jobs' requests
     private static void reapAndPrintJobsBuiltin() {
         for (BackgroundJob job : backgroundJobs) {
             if (!job.process.isAlive() && job.status.equals("Running")) {
