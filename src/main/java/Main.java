@@ -23,6 +23,9 @@ public class Main {
         List<BackgroundJob> backgroundJobs = new ArrayList<>();
         BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
 
+        // List of builtins to check against for the 'type' command
+        List<String> builtins = Arrays.asList("exit", "echo", "type", "pwd", "cd", "jobs");
+
         while (true) {
             System.out.print("$ ");
             System.out.flush();
@@ -39,10 +42,12 @@ public class Main {
 
             String[] tokens = commandLine.split("\\s+");
 
+            // 1. Handle 'exit' builtin
             if (tokens[0].equals("exit")) {
                 break;
             }
 
+            // 2. Handle 'jobs' builtin
             if (tokens[0].equals("jobs")) {
                 for (BackgroundJob job : backgroundJobs) {
                     System.out.printf("[%d]+  %-24s%s\n", job.id, job.status, job.command);
@@ -51,6 +56,25 @@ public class Main {
                 continue;
             }
 
+            // 3. Handle 'type' builtin (FIX FOR AF3)
+            if (tokens[0].equals("type") && tokens.length > 1) {
+                String target = tokens[1];
+                if (builtins.contains(target)) {
+                    System.out.printf("%s is a shell builtin\n", target);
+                } else {
+                    // Check PATH or print not found (reusing standard logic)
+                    String path = getPath(target);
+                    if (path != null) {
+                        System.out.printf("%s is %s\n", target, path);
+                    } else {
+                        System.out.printf("%s: not found\n", target);
+                    }
+                }
+                System.out.flush();
+                continue;
+            }
+
+            // 4. Check for background execution indicator '&'
             boolean isBackground = false;
             String[] execArgs = tokens;
             if (tokens[tokens.length - 1].equals("&")) {
@@ -62,10 +86,8 @@ public class Main {
                 ProcessBuilder pb = new ProcessBuilder(execArgs);
                 
                 if (isBackground) {
-                    // FIX FOR SI2: Inherit standard output and error so background job output is printed
                     pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
                     pb.redirectError(ProcessBuilder.Redirect.INHERIT);
-                    
                     Process process = pb.start();
 
                     int jobId = backgroundJobs.size() + 1;
@@ -90,5 +112,19 @@ public class Main {
                 System.out.flush();
             }
         }
+    }
+
+    // Helper method to resolve command PATH from earlier stages
+    private static String getPath(String command) {
+        String pathEnv = System.getenv("PATH");
+        if (pathEnv == null) return null;
+        String[] directories = pathEnv.split(":");
+        for (String dir : directories) {
+            java.io.File file = new java.io.File(dir, command);
+            if (file.exists() && file.canExecute()) {
+                return file.getAbsolutePath();
+            }
+        }
+        return null;
     }
 }
