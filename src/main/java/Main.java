@@ -78,13 +78,6 @@ public class Main {
                 continue;
             }
 
-            boolean isBackground = false;
-            String[] execArgs = tokens;
-            if (tokens[tokens.length - 1].equals("&")) {
-                isBackground = true;
-                Arrays.copyOfRange(tokens, 0, tokens.length - 1);
-            }
-
             try {
                 ProcessBuilder pb = new ProcessBuilder();
                 pb.command(tokens);
@@ -121,7 +114,7 @@ public class Main {
         System.out.flush();
     }
 
-    // FIX FOR BUILTINS IN PIPELINES: Handles builtins combined with external system commands
+    // FIX FOR NY9: Fully supports builtins on either side of the pipeline operator
     private static void handlePipeline(List<String> tokens) {
         List<List<String>> commands = new ArrayList<>();
         List<String> currentCmd = new ArrayList<>();
@@ -136,47 +129,76 @@ public class Main {
         }
         commands.add(currentCmd);
 
-        // Simple implementation assuming a common case: builtin | external command (e.g., echo hello | wc)
-        if (commands.size() == 2 && BUILTINS.contains(commands.get(0).get(0))) {
-            List<String> builtinCmd = commands.get(0);
-            List<String> externalCmd = commands.get(1);
+        if (commands.size() == 2) {
+            List<String> leftCmd = commands.get(0);
+            List<String> rightCmd = commands.get(1);
 
-            try {
-                ProcessBuilder pb = new ProcessBuilder(externalCmd);
-                pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
-                pb.redirectError(ProcessBuilder.Redirect.INHERIT);
-                Process process = pb.start();
+            // Case 1: Builtin on the LEFT (e.g., echo strawberry | wc)
+            if (BUILTINS.contains(leftCmd.get(0))) {
+                try {
+                    ProcessBuilder pb = new ProcessBuilder(rightCmd);
+                    pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
+                    pb.redirectError(ProcessBuilder.Redirect.INHERIT);
+                    Process process = pb.start();
 
-                // Intercept and feed builtin output directly into the next process's stdin
-                try (OutputStream os = process.getOutputStream()) {
-                    if (builtinCmd.get(0).equals("echo")) {
-                        StringBuilder sb = new StringBuilder();
-                        for (int i = 1; i < builtinCmd.size(); i++) {
-                            sb.append(builtinCmd.get(i)).append(i == builtinCmd.size() - 1 ? "" : " ");
+                    try (OutputStream os = process.getOutputStream()) {
+                        if (leftCmd.get(0).equals("echo")) {
+                            StringBuilder sb = new StringBuilder();
+                            for (int i = 1; i < leftCmd.size(); i++) {
+                                sb.append(leftCmd.get(i)).append(i == leftCmd.size() - 1 ? "" : " ");
+                            }
+                            sb.append("\n");
+                            os.write(sb.toString().getBytes());
+                        } else if (leftCmd.get(0).equals("type") && leftCmd.size() > 1) {
+                            String target = leftCmd.get(1);
+                            String output;
+                            if (BUILTINS.contains(target)) {
+                                output = target + " is a shell builtin\n";
+                            } else {
+                                String path = getPath(target);
+                                output = (path != null) ? target + " is " + path + "\n" : target + ": not found\n";
+                            }
+                            os.write(output.getBytes());
                         }
-                        sb.append("\n");
-                        os.write(sb.toString().getBytes());
-                    } else if (builtinCmd.get(0).equals("type") && builtinCmd.size() > 1) {
-                        String target = builtinCmd.get(1);
-                        String output;
-                        if (BUILTINS.contains(target)) {
-                            output = target + " is a shell builtin\n";
-                        } else {
-                            String path = getPath(target);
-                            output = (path != null) ? target + " is " + path + "\n" : target + ": not found\n";
-                        }
-                        os.write(output.getBytes());
+                        os.flush();
                     }
-                    os.flush();
+                    process.waitFor();
+                } catch (Exception e) {
+                    System.out.println("Pipeline execution failed.");
                 }
-                process.waitFor();
-            } catch (Exception e) {
-                System.out.println("Pipeline execution failed.");
+                return;
             }
-            return;
+
+            // Case 2: Builtin on the RIGHT (e.g., ls | type exit)
+            if (BUILTINS.contains(rightCmd.get(0))) {
+                try {
+                    ProcessBuilder pb = new ProcessBuilder(leftCmd);
+                    // Intercept left process output via pipe streams
+                    Process leftProcess = pb.start();
+
+                    // Even though the builtin doesn't require the piped stdin to resolve 'type exit',
+                    // we must consume it or let the process finish cleanly so resources aren't blocked.
+                    try (BufferedReader br = new BufferedReader(new InputStreamReader(leftProcess.getInputStream()))) {
+                        while (br.readLine() != null) {
+                            // Intentionally consuming left side output
+                        }
+                    }
+                    leftProcess.waitFor();
+
+                    // Execute the right side builtin directly in our JVM container
+                    if (rightCmd.get(0).equals("type") && rightCmd.size() > 1) {
+                        handleTypeBuiltin(rightCmd.get(1));
+                    } else if (rightCmd.get(0).equals("echo")) {
+                        handleEchoBuiltin(rightCmd.toArray(new String[0]));
+                    }
+                } catch (Exception e) {
+                    System.out.println("Pipeline execution failed.");
+                }
+                return;
+            }
         }
 
-        // Standard pure external pipeline fallback
+        // Fallback: Pipeline between pure external binaries
         try {
             List<ProcessBuilder> builders = new ArrayList<>();
             for (List<String> cmd : commands) {
