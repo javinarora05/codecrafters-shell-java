@@ -39,7 +39,12 @@ public class Main {
                 continue;
             }
 
-            String[] tokens = commandLine.split("\\s+");
+            // FIX FOR QJ0: Use a smart token parser that respects single and double quotes
+            List<String> tokenList = parseCommandLine(commandLine);
+            if (tokenList.isEmpty()) {
+                continue;
+            }
+            String[] tokens = tokenList.toArray(new String[0]);
 
             if (tokens[0].equals("exit")) {
                 break;
@@ -81,10 +86,9 @@ public class Main {
                 
                 String redirectFile = null;
                 boolean appendMode = false;
-                int redirectStream = 1; // 1 = stdout, 2 = stderr
+                int redirectStream = 1; 
                 int redirectIndex = -1;
 
-                // FIX FOR EL9: Support 1> and 1>> explicitly alongside >, >>, 2>, 2>>
                 for (int i = 0; i < execArgs.length; i++) {
                     if (execArgs[i].equals(">") || execArgs[i].equals("1>")) {
                         redirectStream = 1; appendMode = false; redirectIndex = i; break;
@@ -146,6 +150,55 @@ public class Main {
                 System.out.flush();
             }
         }
+    }
+
+    // Helper method to parse strings while honoring quotes
+    private static List<String> parseCommandLine(String commandLine) {
+        List<String> list = new ArrayList<>();
+        StringBuilder currentToken = new StringBuilder();
+        boolean inSingleQuotes = false;
+        boolean inDoubleQuotes = false;
+        boolean escaped = false;
+
+        for (int i = 0; i < commandLine.length(); i++) {
+            char c = commandLine.charAt(i);
+
+            if (escaped) {
+                currentToken.append(c);
+                escaped = false;
+            } else if (c == '\\' && !inSingleQuotes) {
+                // Keep the backslash literal if inside double quotes and not escaping special characters
+                if (inDoubleQuotes) {
+                    if (i + 1 < commandLine.length()) {
+                        char next = commandLine.charAt(i + 1);
+                        if (next == '$' || next == '`' || next == '"' || next == '\\' || next == '\n') {
+                            escaped = true;
+                        } else {
+                            currentToken.append(c);
+                        }
+                    } else {
+                        currentToken.append(c);
+                    }
+                } else {
+                    escaped = true;
+                }
+            } else if (c == '\'' && !inDoubleQuotes) {
+                inSingleQuotes = !inSingleQuotes;
+            } else if (c == '"' && !inSingleQuotes) {
+                inDoubleQuotes = !inDoubleQuotes;
+            } else if (Character.isWhitespace(c) && !inSingleQuotes && !inDoubleQuotes) {
+                if (currentToken.length() > 0) {
+                    list.add(currentToken.toString());
+                    currentToken.setLength(0);
+                }
+            } else {
+                currentToken.append(c);
+            }
+        }
+        if (currentToken.length() > 0) {
+            list.add(currentToken.toString());
+        }
+        return list;
     }
 
     private static String getPath(String command) {
