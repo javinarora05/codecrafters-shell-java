@@ -24,7 +24,6 @@ public class Main {
     }
 
     private static final List<BackgroundJob> activeJobs = new ArrayList<>();
-    private static int nextJobId = 1;
 
     public static void main(String[] args) throws Exception {
         Scanner scanner = new Scanner(System.in);
@@ -50,22 +49,46 @@ public class Main {
         while (iterator.hasNext()) {
             BackgroundJob job = iterator.next();
             if (!job.process.isAlive()) {
-                // Print completion format: [1]+  Done                 cat /tmp/blueberry-45
                 System.out.println("[" + job.jobId + "]+  Done                 " + job.command);
                 iterator.remove();
             }
         }
     }
 
+    // Dynamically calculate the smallest available Job ID starting from 1
+    private static int getNextAvailableJobId() {
+        int candidate = 1;
+        while (true) {
+            boolean matches = false;
+            for (BackgroundJob job : activeJobs) {
+                if (job.jobId == candidate) {
+                    matches = true;
+                    break;
+                }
+            }
+            if (!matches) {
+                return candidate;
+            }
+            candidate++;
+        }
+    }
+
     private static void executePipeline(String input) {
         boolean isBackground = false;
-        String originalCommand = input; // Keep exact copy for job tracking output
+        String originalCommand = input; 
         
         if (input.endsWith("&")) {
             isBackground = true;
             input = input.substring(0, input.length() - 1).trim();
-            // Match the exact naming spacing expected by CodeCrafters tester
             originalCommand = input; 
+        }
+
+        // Handle 'jobs' builtin natively if requested
+        if (input.equals("jobs")) {
+            for (BackgroundJob job : activeJobs) {
+                System.out.println("[" + job.jobId + "]+  Running              " + job.command + " &");
+            }
+            return;
         }
 
         if (!input.contains("|")) {
@@ -86,13 +109,12 @@ public class Main {
             Process process = pb.start();
 
             if (isBackground) {
-                int jobId = nextJobId++;
+                // Find and allocate the recycled lowest job ID
+                int jobId = getNextAvailableJobId();
                 System.out.println("[" + jobId + "] " + process.pid());
                 
-                // Track this active process to report its termination later
                 activeJobs.add(new BackgroundJob(jobId, process, originalCommand));
                 
-                // Silently discard streams in the background so it doesn't leak into foreground operations
                 process.getInputStream().close();
                 process.getErrorStream().close();
             } else {
