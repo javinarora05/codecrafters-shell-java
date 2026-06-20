@@ -35,6 +35,7 @@ public class Main {
         BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
 
         while (true) {
+            // Reap any jobs that finished while we were waiting at the prompt
             reapCompletedJobs();
 
             System.out.print("$ ");
@@ -63,6 +64,7 @@ public class Main {
 
             if (tokenList.contains("|")) {
                 handlePipeline(tokenList);
+                reapCompletedJobs(); // Reap immediately after pipeline execution
                 continue;
             }
 
@@ -113,6 +115,7 @@ public class Main {
                     System.setOut(originalOut);
                     System.setErr(originalErr);
                 }
+                reapCompletedJobs(); // Reap immediately after builtin execution
                 continue;
             }
 
@@ -126,6 +129,7 @@ public class Main {
                     System.setOut(originalOut);
                     System.setErr(originalErr);
                 }
+                reapCompletedJobs(); // Reap immediately after builtin execution
                 continue;
             }
 
@@ -184,6 +188,9 @@ public class Main {
                 System.out.printf("%s: command not found\n", tokens[0]);
                 System.out.flush();
             }
+
+            // FIX FOR BV8: Reap right after an external foreground command finishes
+            reapCompletedJobs();
         }
     }
 
@@ -324,8 +331,6 @@ public class Main {
             String marker = " ";
             if (job.id == currentJobId) marker = "+";
             else if (job.id == previousJobId) marker = "-";
-            
-            // Format state status configuration spaces to exactly match expected output alignment
             System.out.printf("[%d]%s  %-24s%s\n", job.id, marker, job.status, job.command);
         }
     }
@@ -360,7 +365,6 @@ public class Main {
         System.out.flush();
     }
 
-    // FIX FOR RQ2: Unified execution handler preventing double print race states
     private static void reapAndPrintJobsBuiltin() {
         for (BackgroundJob job : backgroundJobs) {
             if (!job.process.isAlive() && job.status.equals("Running")) {
