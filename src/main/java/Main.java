@@ -1,7 +1,9 @@
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
@@ -64,7 +66,7 @@ public class Main {
                 continue;
             }
 
-            // RE-INTEGRATED REDIRECTION PARSING
+            // REDIRECTION PARSING (Moved up so builtins can access it)
             String redirectFile = null;
             boolean appendMode = false;
             int redirectStream = 1; 
@@ -85,7 +87,6 @@ public class Main {
 
             if (redirectIndex != -1 && redirectIndex + 1 < tokenList.size()) {
                 redirectFile = tokenList.get(redirectIndex + 1);
-                // Cut off operators and file targets from target command execution array
                 while (tokenList.size() > redirectIndex) {
                     tokenList.remove(redirectIndex);
                 }
@@ -103,13 +104,30 @@ public class Main {
                 continue;
             }
 
+            // Route builtins through a wrapper that respects redirection file configs
             if (tokens[0].equals("type") && tokens.length > 1) {
-                handleTypeBuiltin(tokens[1]);
+                PrintStream originalOut = System.out;
+                PrintStream originalErr = System.err;
+                try {
+                    setupBuiltinRedirection(redirectFile, appendMode, redirectStream);
+                    handleTypeBuiltin(tokens[1]);
+                } finally {
+                    System.setOut(originalOut);
+                    System.setErr(originalErr);
+                }
                 continue;
             }
 
             if (tokens[0].equals("echo")) {
-                handleEchoBuiltin(tokens);
+                PrintStream originalOut = System.out;
+                PrintStream originalErr = System.err;
+                try {
+                    setupBuiltinRedirection(redirectFile, appendMode, redirectStream);
+                    handleEchoBuiltin(tokens);
+                } finally {
+                    System.setOut(originalOut);
+                    System.setErr(originalErr);
+                }
                 continue;
             }
 
@@ -140,7 +158,6 @@ public class Main {
                     previousJobId = currentJobId;
                     currentJobId = jobId;
                 } else {
-                    // Apply redirection handles if they were present
                     if (redirectFile != null) {
                         File file = new File(redirectFile);
                         if (file.getParentFile() != null) {
@@ -169,6 +186,25 @@ public class Main {
                 System.out.printf("%s: command not found\n", tokens[0]);
                 System.out.flush();
             }
+        }
+    }
+
+    // Redirects JVM System streams temporarily for inner builtins
+    private static void setupBuiltinRedirection(String redirectFile, boolean appendMode, int redirectStream) {
+        if (redirectFile == null) return;
+        try {
+            File file = new File(redirectFile);
+            if (file.getParentFile() != null) {
+                file.getParentFile().mkdirs();
+            }
+            PrintStream filePrintStream = new PrintStream(new FileOutputStream(file, appendMode));
+            if (redirectStream == 1) {
+                System.setOut(filePrintStream);
+            } else {
+                System.setErr(filePrintStream);
+            }
+        } catch (Exception e) {
+            // Fallback gracefully on setup error
         }
     }
 
