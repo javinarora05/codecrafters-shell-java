@@ -155,6 +155,7 @@ public class Main {
         }
     }
 
+    // FIXED: Prints in chronological Job ID sequence as expected by the 'jobs' builtin
     private static void printWithMarkers(List<BackgroundJob> list) {
         int mostRecentIdx = -1;
         int secondMostRecentIdx = -1;
@@ -168,30 +169,16 @@ public class Main {
             }
         }
 
-        // Print Done tasks first
         for (int i = 0; i < list.size(); i++) {
             BackgroundJob job = list.get(i);
-            if (job.status.equals("Done")) {
-                String marker = " ";
-                if (i == mostRecentIdx) marker = "+";
-                else if (i == secondMostRecentIdx) marker = "-";
-                System.out.printf("[%d]%s  %-24s%s\n", job.id, marker, job.status, job.command);
-            }
-        }
-
-        // Print Running tasks next
-        for (int i = 0; i < list.size(); i++) {
-            BackgroundJob job = list.get(i);
-            if (job.status.equals("Running")) {
-                String marker = " ";
-                if (i == mostRecentIdx) marker = "+";
-                else if (i == secondMostRecentIdx) marker = "-";
-                System.out.printf("[%d]%s  %-24s%s\n", job.id, marker, job.status, job.command);
-            }
+            String marker = " ";
+            if (i == mostRecentIdx) marker = "+";
+            else if (i == secondMostRecentIdx) marker = "-";
+            System.out.printf("[%d]%s  %-24s%s\n", job.id, marker, job.status, job.command);
         }
     }
 
-    // FIX FOR BV8: Only print jobs that explicitly change state to "Done"
+    // Only prints jobs that explicitly change state to "Done" before a prompt
     private static void reapCompletedJobs() {
         int mostRecentIdx = -1;
         int secondMostRecentIdx = -1;
@@ -217,7 +204,6 @@ public class Main {
                 if (i == mostRecentIdx) marker = "+";
                 else if (i == secondMostRecentIdx) marker = "-";
 
-                // Print ONLY this specific done task
                 System.out.printf("[%d]%s  %-24s%s\n", job.id, marker, job.status, job.command);
             }
         }
@@ -231,7 +217,7 @@ public class Main {
         System.out.flush();
     }
 
-    // Explicit 'jobs' command still reports all remaining tasks
+    // Explicit 'jobs' command reports all remaining tasks in ID order
     private static void reapAndPrintJobsBuiltin() {
         for (BackgroundJob job : backgroundJobs) {
             if (!job.process.isAlive() && job.status.equals("Running")) {
