@@ -1,4 +1,5 @@
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.util.ArrayList;
@@ -52,7 +53,6 @@ public class Main {
                 continue;
             }
 
-            // FIX FOR FY4: Extract background flag safely prior to conditional branch handling
             boolean isBackground = false;
             if (tokenList.get(tokenList.size() - 1).equals("&")) {
                 isBackground = true;
@@ -64,7 +64,35 @@ public class Main {
                 continue;
             }
 
+            // RE-INTEGRATED REDIRECTION PARSING
+            String redirectFile = null;
+            boolean appendMode = false;
+            int redirectStream = 1; 
+            int redirectIndex = -1;
+
+            for (int i = 0; i < tokenList.size(); i++) {
+                String t = tokenList.get(i);
+                if (t.equals(">") || t.equals("1>")) {
+                    redirectStream = 1; appendMode = false; redirectIndex = i; break;
+                } else if (t.equals(">>") || t.equals("1>>")) {
+                    redirectStream = 1; appendMode = true; redirectIndex = i; break;
+                } else if (t.equals("2>")) {
+                    redirectStream = 2; appendMode = false; redirectIndex = i; break;
+                } else if (t.equals("2>>")) {
+                    redirectStream = 2; appendMode = true; redirectIndex = i; break;
+                }
+            }
+
+            if (redirectIndex != -1 && redirectIndex + 1 < tokenList.size()) {
+                redirectFile = tokenList.get(redirectIndex + 1);
+                // Cut off operators and file targets from target command execution array
+                while (tokenList.size() > redirectIndex) {
+                    tokenList.remove(redirectIndex);
+                }
+            }
+
             String[] tokens = tokenList.toArray(new String[0]);
+            if (tokens.length == 0) continue;
 
             if (tokens[0].equals("exit")) {
                 break;
@@ -90,20 +118,15 @@ public class Main {
                 pb.command(tokens);
 
                 if (isBackground) {
-                    // Must inherit IO channels safely or avoid standard blocking traps
                     pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
                     pb.redirectError(ProcessBuilder.Redirect.INHERIT);
                     Process process = pb.start();
 
-                    // Recycle logic / get lowest available Job ID
                     int jobId = 1;
                     while (true) {
                         boolean used = false;
                         for (BackgroundJob job : backgroundJobs) {
-                            if (job.id == jobId) {
-                                used = true;
-                                break;
-                            }
+                            if (job.id == jobId) { used = true; break; }
                         }
                         if (!used) break;
                         jobId++;
@@ -114,11 +137,31 @@ public class Main {
                     System.out.flush();
 
                     backgroundJobs.add(new BackgroundJob(jobId, pid, commandLine, "Running", process));
-                    
                     previousJobId = currentJobId;
                     currentJobId = jobId;
                 } else {
-                    pb.inheritIO();
+                    // Apply redirection handles if they were present
+                    if (redirectFile != null) {
+                        File file = new File(redirectFile);
+                        if (file.getParentFile() != null) {
+                            file.getParentFile().mkdirs();
+                        }
+                        
+                        ProcessBuilder.Redirect targetRedirect = appendMode ? 
+                                ProcessBuilder.Redirect.appendTo(file) : 
+                                ProcessBuilder.Redirect.to(file);
+
+                        if (redirectStream == 1) {
+                            pb.redirectOutput(targetRedirect);
+                            pb.redirectError(ProcessBuilder.Redirect.INHERIT);
+                        } else {
+                            pb.redirectError(targetRedirect);
+                            pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
+                        }
+                    } else {
+                        pb.inheritIO();
+                    }
+
                     Process process = pb.start();
                     process.waitFor();
                 }
