@@ -10,14 +10,13 @@ public class Main {
         
         while (true) {
             System.out.print("$ ");
+            if (!scanner.hasNextLine()) {
+                break;
+            }
             String input = scanner.nextLine().trim();
             
             if (input.isEmpty()) {
                 continue;
-            }
-            
-            if (input.equals("exit 0")) {
-                break;
             }
             
             List<String> tokens = parseArguments(input);
@@ -99,7 +98,6 @@ public class Main {
         }
 
         // --- PRE-CREATE REDIRECTION FILES ---
-        // Shells must create the files immediately, even if they end up being empty
         if (stdoutRedirectFile != null) {
             try {
                 File outFile = new File(stdoutRedirectFile);
@@ -118,6 +116,18 @@ public class Main {
         String baseCommand = commandArgs.get(0);
 
         // --- HANDLE BUILT-IN COMMANDS ---
+        if (baseCommand.equals("exit")) {
+            int exitCode = 0;
+            if (commandArgs.size() > 1) {
+                try {
+                    exitCode = Integer.parseInt(commandArgs.get(1));
+                } catch (NumberFormatException e) {
+                    exitCode = 0;
+                }
+            }
+            System.exit(exitCode);
+        }
+
         if (baseCommand.equals("type")) {
             if (commandArgs.size() > 1) {
                 String target = commandArgs.get(1);
